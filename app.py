@@ -46,7 +46,7 @@ with tab1:
     c1, c2, c3 = st.columns(3)
     c1.metric("Avg Daily Spent", f"{int(avg_spent_daily):,} tokens")
     c2.metric("New Daily Limit", f"{int(daily_allowance_remaining):,} tokens", help="Maximum tokens per day to stay under 3M")
-    c3.metric("Projected Monthly", f"{int(projected_total / 1000):,}k / 3M")
+    c3.metric("Projected Monthly", f"{int(projected_total):,} / 3,000,000")
 
     # Arsenal Fan Themed Alerts
     if projected_total > MONTHLY_LIMIT:
