@@ -29,7 +29,11 @@ with tab1:
     current_tokens = st.number_input("Tokens Used to Date:", value=632000, step=1000)
     
     if st.button("Save Token Usage"):
-        st.success("Usage Saved!")
+    # Create a small table (DataFrame) with today's date and your input
+    df = pd.DataFrame([{"Date": NOW.strftime("%Y-%m-%d"), "Usage": current_tokens}])
+    # Append this to your Google Sheet 'Tokens' tab
+    conn.update(worksheet="Tokens", data=df)
+    st.success("Usage Saved to Google Sheets!")
 
     # EVERYTHING BELOW IS NOW INDENTED TO SHOW IN TAB 1
     st.divider()
@@ -53,7 +57,9 @@ with tab2:
     spent_so_far = st.number_input("Spent including Today:", value=180.0)
 
     if st.button("Save Expenses"):
-        st.success("Expenses Saved!")
+    df_exp = pd.DataFrame([{"Date": NOW.strftime("%Y-%m-%d"), "Spent": spent_to_date}])
+    conn.update(worksheet="Expenses", data=df_exp)
+    st.success("Expenses Saved to Google Sheets!")
 
     # CALCULATIONS INDENTED TO SHOW IN TAB 2
     st.divider()
