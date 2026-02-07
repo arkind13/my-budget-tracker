@@ -11,7 +11,7 @@ WEEKLY_BUDGET_LIMIT = 630.0
 
 # --- ARSENAL DATA (Update these after each match) ---
 LAST_MATCH_TXT = "Arsenal 1 - 0 Chelsea (Carabao Cup Semi)"
-NEXT_OPPONENT = "Sunderland (H)"
+NEXT_OPPONENT = "Sunderland (H) 8th"
 NEXT_KICKOFF = "02:00 AM, Sun 8 Feb (SYD)"
 PL_TABLE = {
     "Pos": [1, 2, 3, 4],
