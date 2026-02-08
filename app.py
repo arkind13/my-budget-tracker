@@ -128,18 +128,22 @@ with tab3:
 # --- TAB 4: WOOLWORTHS PAY CALCULATOR ---
 with tab4:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("Calculates net pay with a flat 25% tax and standard laundry allowance.")
+    st.info("Enter hours separately. Rates include Casual Loading and Shift Penalties.")
 
-    # Input Fields
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        norm_h = st.number_input("Normal Hours (Mon-Sat < 11pm):", value=17.5, step=0.5)
-    with c2:
-        late_h = st.number_input("Late Night Hours (After 11pm):", value=1.5, step=0.5)
-    with c3:
+    # Input Fields arranged in a 2x2 grid
+    row1_col1, row1_col2 = st.columns(2)
+    row2_col1, row2_col2 = st.columns(2)
+
+    with row1_col1:
+        norm_h = st.number_input("Standard Hours (Mon-Sat < 11pm):", value=17.5, step=0.5)
+    with row1_col2:
+        late_h = st.number_input("Late Night Hours (Mon-Sat > 11pm):", value=1.5, step=0.5)
+    with row2_col1:
         sun_h = st.number_input("Sunday Hours (All day):", value=5.5, step=0.5)
+    with row2_col2:
+        ph_h = st.number_input("Public Holiday Hours:", value=0.0, step=0.5)
 
-    # Constants based on your specific payslip
+    # Constants based on your payslip
     BASE_ORD = 26.9797
     CAS_LOAD = 6.7449
     SHIFT_25 = 6.7449
@@ -147,31 +151,34 @@ with tab4:
     LAUNDRY = 6.25
     NET_GOAL = 520.00
 
-    # Hourly Rates
-    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25  # $40.47
-    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50  # $47.21
+    # Hourly Rates (Gross)
+    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25  # $40.84 (Standard)
+    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50  # $47.58 (Sunday/Late Night)
+    rate_ph  = BASE_ORD * 2.5                  # $67.45 (Public Holiday)
 
-    # Calculations
+    # Gross Calculations
     gross_std = norm_h * rate_std
     gross_pen = (late_h + sun_h) * rate_pen
-    total_gross = gross_std + gross_pen
+    gross_ph  = ph_h * rate_ph
+    total_gross = gross_std + gross_pen + gross_ph
     
-    # Flat 25% Tax as requested
+    # Net Calculations (Flat 25% Tax as requested)
     est_tax = total_gross * 0.25
     est_net = (total_gross - est_tax) + LAUNDRY
+    total_hrs = norm_h + late_h + sun_h + ph_h
 
     # Display Metrics
     st.divider()
     m1, m2, m3 = st.columns(3)
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
-    m2.metric("Total Gross", f"${total_gross:.2f}")
+    m2.metric("Total Hours", f"{total_hrs} hrs")
     
     # Goal Tracker Delta
     goal_delta = est_net - NET_GOAL
-    m3.metric("Goal Status ($520)", f"${est_net:.2f}", delta=f"${goal_delta:.2f} vs Goal")
+    m3.metric("Goal Status", f"${est_net:.2f}", delta=f"${goal_delta:.2f} vs $520")
 
     # Arsenal Themed Success/Warning
     if est_net >= NET_GOAL:
-        st.success(f"🔥 Clinical Finish! You've cleared the $520 target by ${goal_delta:.2f}.")
+        st.success(f"🏆 Top of the Table! You've cleared the $520 target by ${goal_delta:.2f}.")
     else:
-        st.warning(f"⚠️ 1-0 down! You are ${abs(goal_delta):.2f} short of the $520 weekly target.")
+        st.warning(f"⚠️ Needs a Late Goal! You are ${abs(goal_delta):.2f} short of your $520 target.")
