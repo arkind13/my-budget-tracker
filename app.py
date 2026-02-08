@@ -5,13 +5,13 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Gunners Budget Tracker", layout="wide", page_icon="🔴")
 
 # --- ARSENAL DATA (Update these after each match) ---
-LAST_MATCH_TXT = "Arsenal 1 - 0 Chelsea (Carabao Cup Semi)"
-NEXT_OPPONENT = "Sunderland (H) 8th"
-NEXT_KICKOFF = "02:00 AM, Sun 8 Feb (SYD)"
+LAST_MATCH_TXT = "Arsenal 3 - 0 Sunderland (Premier League)"
+NEXT_OPPONENT = "Brentford (A) 7th"
+NEXT_KICKOFF = "07:00 AM, Fri 13 Feb (SYD)"
 PL_TABLE = {
     "Pos": [1, 2, 3, 4],
     "Team": ["Arsenal", "Man City", "Aston Villa", "Man Utd"],
-    "Pts": [53, 47, 46, 41]
+    "Pts": [56, 47, 47, 44]
 }
 
 # --- DATE CALCULATIONS (SYDNEY TIME) ---
@@ -39,7 +39,7 @@ days_remaining_monthly = max((end_date - NOW).days, 1)
 
 # --- APP INTERFACE ---
 st.title("🔴 Gunners Dashboard")
-tab1, tab2, tab3 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "⚽ Arsenal FC"])
+tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "⚽ Arsenal FC", "🛒 Woolies Pay"])
 
 # --- TAB 1: AI FIESTA TOKENS ---
 with tab1:
@@ -124,3 +124,54 @@ with tab3:
     st.subheader("Premier League Table (Top 4)")
     st.table(PL_TABLE)
     st.success("COYG! Top of the league! 🏆")
+
+# --- TAB 4: WOOLWORTHS PAY CALCULATOR ---
+with tab4:
+    st.header("🛒 Woolies Pay Calculator")
+    st.info("Calculates net pay with a flat 25% tax and standard laundry allowance.")
+
+    # Input Fields
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        norm_h = st.number_input("Normal Hours (Mon-Sat < 11pm):", value=17.5, step=0.5)
+    with c2:
+        late_h = st.number_input("Late Night Hours (After 11pm):", value=1.5, step=0.5)
+    with c3:
+        sun_h = st.number_input("Sunday Hours (All day):", value=5.5, step=0.5)
+
+    # Constants based on your specific payslip
+    BASE_ORD = 26.9797
+    CAS_LOAD = 6.7449
+    SHIFT_25 = 6.7449
+    SHIFT_50 = 13.4899
+    LAUNDRY = 6.25
+    NET_GOAL = 520.00
+
+    # Hourly Rates
+    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25  # $40.47
+    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50  # $47.21
+
+    # Calculations
+    gross_std = norm_h * rate_std
+    gross_pen = (late_h + sun_h) * rate_pen
+    total_gross = gross_std + gross_pen
+    
+    # Flat 25% Tax as requested
+    est_tax = total_gross * 0.25
+    est_net = (total_gross - est_tax) + LAUNDRY
+
+    # Display Metrics
+    st.divider()
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Estimated Net Pay", f"${est_net:.2f}")
+    m2.metric("Total Gross", f"${total_gross:.2f}")
+    
+    # Goal Tracker Delta
+    goal_delta = est_net - NET_GOAL
+    m3.metric("Goal Status ($520)", f"${est_net:.2f}", delta=f"${goal_delta:.2f} vs Goal")
+
+    # Arsenal Themed Success/Warning
+    if est_net >= NET_GOAL:
+        st.success(f"🔥 Clinical Finish! You've cleared the $520 target by ${goal_delta:.2f}.")
+    else:
+        st.warning(f"⚠️ 1-0 down! You are ${abs(goal_delta):.2f} short of the $520 weekly target.")
