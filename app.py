@@ -46,7 +46,7 @@ with tab1:
     st.header("AI Fiesta Token Cycle")
     st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
     
-    current_tokens = st.number_input("Tokens Used to Date:", value=632000, step=1000)
+    current_tokens = st.number_input("Tokens Used to Date:", value=632000, step=1000, format="%d")
     
     avg_spent_daily = current_tokens / days_passed_monthly
     remaining_tokens = MONTHLY_LIMIT - current_tokens
