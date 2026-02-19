@@ -129,7 +129,7 @@ with tab3:
 # --- TAB 4: WOOLWORTHS PAY CALCULATOR ---
 with tab4:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("Enter hours separately. Rates include Casual Loading and Shift Penalties.")
+    st.info("Enter hours separately. Rates include Casual Loading and Shift Penalties. Tax @28%")
 
     # Input Fields arranged in a 2x2 grid
     row1_col1, row1_col2 = st.columns(2)
@@ -163,8 +163,8 @@ with tab4:
     gross_ph  = ph_h * rate_ph
     total_gross = gross_std + gross_pen + gross_ph
     
-    # Net Calculations (Flat 25% Tax as requested)
-    est_tax = total_gross * 0.25
+    # Net Calculations (Flat 28% Tax as requested)
+    est_tax = total_gross * 0.28
     est_net = (total_gross - est_tax) + LAUNDRY
     total_hrs = norm_h + late_h + sun_h + ph_h
 
