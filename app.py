@@ -1,5 +1,8 @@
 import streamlit as st
 from datetime import datetime, timedelta
+import os, time
+os.environ['TZ'] = 'Australia/Sydney'
+time.tzset()
 
 # --- CONFIG ---
 st.set_page_config(page_title="Gunners Budget Tracker", layout="wide", page_icon="🔴")
