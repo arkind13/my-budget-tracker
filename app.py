@@ -15,7 +15,10 @@ PL_TABLE = {
 }
 
 # --- DATE CALCULATIONS (SYDNEY TIME) ---
-NOW = datetime.now()
+# Force Sydney timezone
+sydney_tz = pytz.timezone('Australia/Sydney')
+NOW = datetime.now(sydney_tz)
+current_weekday = NOW.weekday()
 MONTHLY_LIMIT = 3000000
 RESET_DAY = 25
 
