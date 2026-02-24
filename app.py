@@ -89,16 +89,16 @@ with tab2:
     days_since_thurs = (current_weekday - 3) % 7
 
     # NEW: Time-based logic for today's completion
-# If it's Wednesday (index 2) AND current time is past noon (12 PM), then today is effectively over
-# Or more simply: We want to treat Wednesday as the "last day" regardless of time
-if current_weekday == 2:  # Wednesday
-    # For Wednesday specifically, always show 1 day left (the day itself)
-    # But respect the checkbox for whether to count today as completed
+    # If it's Wednesday (index 2) AND current time is past noon (12 PM), then today is effectively over
+    # Or more simply: We want to treat Wednesday as the "last day" regardless of time
+    if current_weekday == 2:  # Wednesday
+        # For Wednesday specifically, always show 1 day left (the day itself)
+        # But respect the checkbox for whether to count today as completed
     if today_is_over:
         days_left_weekly = 0  # Today is over, so no days left
     else:
         days_left_weekly = 1  # Today is not over, so 1 day left (Wednesday itself)
-else:
+    else:
     # For all other days, use normal calculation
     if today_is_over:
         days_left_weekly = 7 - (days_since_thurs + 1)
