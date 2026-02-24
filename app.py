@@ -133,6 +133,7 @@ else:
 
     if remaining_funds < 0:
         st.error(f"Budget overspent by ${abs(remaining_funds):.2f}!")
+        
 # COMPLETE DIAGNOSTIC
 st.write("=== FULL SYSTEM DIAGNOSTIC ===")
 st.write(f"**System Time:** {NOW}")
