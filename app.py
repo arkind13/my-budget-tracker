@@ -88,6 +88,16 @@ with tab2:
 # Check what day we're actually working with
 st.write(f"Debug - Current weekday number: {current_weekday}")
 st.write(f"Debug - Days since Thursday: {days_since_thurs}")
+
+# COMPLETE DIAGNOSTIC
+st.write("=== FULL SYSTEM DIAGNOSTIC ===")
+st.write(f"**System Time:** {NOW}")
+st.write(f"**UTC Time:** {datetime.utcnow()}")
+st.write(f"**Weekday Number:** {NOW.weekday()} (0=Monday, 6=Sunday)")
+st.write(f"**Day Name:** {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][NOW.weekday()]}")
+st.write(f"**Hour:** {NOW.hour}")
+st.write(f"**Minute:** {NOW.minute}")
+st.write(f"**Second:** {NOW.second}")
     
     # NEW: Time-based logic for today's completion
 # If it's Wednesday (index 2) AND current time is past noon (12 PM), then today is effectively over
