@@ -114,7 +114,7 @@ else:
     else:
         daily_allowance_weekly = remaining_funds
 
-st.divider()
+    st.divider()
     
     col_a, col_b = st.columns(2)
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
