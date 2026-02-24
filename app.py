@@ -88,11 +88,6 @@ with tab2:
     # Python: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
     days_since_thurs = (current_weekday - 3) % 7
 
-# Check what day we're actually working with
-st.write(f"Debug - Current weekday number: {current_weekday}")
-st.write(f"Debug - Days since Thursday: {days_since_thurs}")
-
-    
     # NEW: Time-based logic for today's completion
 # If it's Wednesday (index 2) AND current time is past noon (12 PM), then today is effectively over
 # Or more simply: We want to treat Wednesday as the "last day" regardless of time
@@ -119,7 +114,7 @@ else:
     else:
         daily_allowance_weekly = remaining_funds
 
-    st.divider()
+st.divider()
     
     col_a, col_b = st.columns(2)
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
