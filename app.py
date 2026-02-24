@@ -98,7 +98,7 @@ with tab2:
             days_left_weekly = 0  # Today is over, so no days left
         else:
             days_left_weekly = 1  # Today is not over, so 1 day left (Wednesday itself)
-        else:
+    else:
         # For all other days, use normal calculation
         if today_is_over:
             days_left_weekly = 7 - (days_since_thurs + 1)
