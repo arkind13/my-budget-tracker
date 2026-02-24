@@ -68,10 +68,16 @@ with tab1:
 # --- TAB 2: PERSONAL WEEKLY BUDGET (THURS START) ---
 with tab2:
     st.header("Weekly Budget Tracker")
-    st.info("Week starts **Thursday**. Calculations assume the day you enter data is **already finished**.")
+    st.info("Week starts **Thursday**.")
     
     weekly_limit = st.number_input("Weekly Budget (AUD):", value=630.0, step=10.0)
     spent_to_date = st.number_input("Total Spent so far (including today):", value=180.0, step=1.0)
+
+    # NEW: Add adjusted amount input field with default $0
+    adjusted_amount = st.number_input("Adjusted Amount (AUD):", value=0.0, step=1.0)
+
+    # NEW: Add checkbox to indicate if today is over
+    today_is_over = st.checkbox("Today is over (count as completed day)")
     
     # Calculate days left (Thursday = Day 0, Wednesday = Day 6)
     current_weekday = NOW.weekday() 
@@ -79,12 +85,16 @@ with tab2:
     # Python: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
     days_since_thurs = (current_weekday - 3) % 7
     
-    # As per request: If today is Saturday, Saturday is over. 
-    # Thursday (0), Friday (1), Saturday (2) are done.
-    # Remaining days = 7 - (days_since_thurs + 1)
+    # NEW: Logic to handle "today is over" checkbox
+    if today_is_over:
+    # If today is over, we don't count it as a remaining day
     days_left_weekly = 7 - (days_since_thurs + 1)
+    else:
+    # If today is not over, we still count it as a remaining day
+    days_left_weekly = 7 - days_since_thurs
     
-    remaining_funds = weekly_limit - spent_to_date
+    # NEW: Calculate remaining funds with adjusted amount
+    remaining_funds = weekly_limit - spent_to_date + adjusted_amount
 
     # Avoid division by zero on Wednesday night
     if days_left_weekly > 0:
