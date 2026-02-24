@@ -87,11 +87,11 @@ with tab2:
     
     # NEW: Logic to handle "today is over" checkbox
     if today_is_over:
-    # If today is over, we don't count it as a remaining day
-    days_left_weekly = 7 - (days_since_thurs + 1)
+        # If today is over, we don't count it as a remaining day
+        days_left_weekly = 7 - (days_since_thurs + 1)
     else:
-    # If today is not over, we still count it as a remaining day
-    days_left_weekly = 7 - days_since_thurs
+        # If today is not over, we still count it as a remaining day
+        days_left_weekly = 7 - days_since_thurs
     
     # NEW: Calculate remaining funds with adjusted amount
     remaining_funds = weekly_limit - spent_to_date + adjusted_amount
