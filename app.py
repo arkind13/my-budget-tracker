@@ -129,6 +129,12 @@ with tab2:
     if remaining_funds < 0:
         st.error(f"Budget overspent by ${abs(remaining_funds):.2f}!")
 
+    # Check what day we're actually working with
+    st.write(f" Current weekday number: {current_weekday}")
+    st.write(f" Days since Thursday: {days_since_thurs}")
+    st.write(f"**System Time:** {NOW}")
+    st.write(f"**Day Name:** {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][NOW.weekday()]}")
+
 # --- TAB 3: ARSENAL FC ---
 with tab3:
     st.header("⚽ Match Day Centre")
