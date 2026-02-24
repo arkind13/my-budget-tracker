@@ -20,22 +20,21 @@ PL_TABLE = {
 # --- DATE CALCULATIONS (SYDNEY TIME) ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
-RESET_DAY = 25
-
-# Monthly Reset Logic
-if NOW.day >= RESET_DAY:
-    start_date = datetime(NOW.year, NOW.month, RESET_DAY, 17, 20)
-    if NOW.month == 12:
-        end_date = datetime(NOW.year + 1, 1, RESET_DAY, 17, 20)
-    else:
-        end_date = datetime(NOW.year, NOW.month + 1, RESET_DAY, 17, 20)
-else:
-    if NOW.month == 1:
-        start_date = datetime(NOW.year - 1, 12, RESET_DAY, 17, 20)
-    else:
-        start_date = datetime(NOW.year, NOW.month - 1, RESET_DAY, 17, 20)
-    end_date = datetime(NOW.year, NOW.month, RESET_DAY, 17, 20)
-
+RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
+def cycle_dates(ref):
+    """Return (start, end) for the cycle that contains ref."""
+    start = ref.replace(day=RESET_DAY, hour=RESET_HOUR, minute=RESET_MIN,
+                        second=0, microsecond=0)
+    if ref < start:                       # still in previous cycle
+        prev = (start.replace(day=1) - timedelta(days=1))
+        start = prev.replace(day=RESET_DAY, hour=RESET_HOUR, minute=RESET_MIN,
+                             second=0, microsecond=0)
+    # next cycle
+    m = (start.month % 12) + 1
+    y = start.year + (1 if m == 1 else 0)
+    end = start.replace(year=y, month=m)
+    return start, end
+start_date, end_date = cycle_dates(NOW)
 total_cycle_days = (end_date - start_date).days
 days_passed_monthly = max((NOW - start_date).days, 1)
 days_remaining_monthly = max((end_date - NOW).days, 1)
