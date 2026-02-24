@@ -1,6 +1,5 @@
 import streamlit as st
 from datetime import datetime, timedelta
-import pytz
 
 # --- CONFIG ---
 st.set_page_config(page_title="Gunners Budget Tracker", layout="wide", page_icon="🔴")
@@ -16,9 +15,7 @@ PL_TABLE = {
 }
 
 # --- DATE CALCULATIONS (SYDNEY TIME) ---
-# Force Sydney timezone
-sydney_tz = pytz.timezone('Australia/Sydney')
-NOW = datetime.now(sydney_tz)
+NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY = 25
 
