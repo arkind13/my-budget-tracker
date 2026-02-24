@@ -94,16 +94,16 @@ with tab2:
     if current_weekday == 2:  # Wednesday
         # For Wednesday specifically, always show 1 day left (the day itself)
         # But respect the checkbox for whether to count today as completed
-    if today_is_over:
-        days_left_weekly = 0  # Today is over, so no days left
-    else:
-        days_left_weekly = 1  # Today is not over, so 1 day left (Wednesday itself)
-    else:
-    # For all other days, use normal calculation
-    if today_is_over:
-        days_left_weekly = 7 - (days_since_thurs + 1)
-    else:
-        days_left_weekly = 7 - days_since_thurs
+        if today_is_over:
+            days_left_weekly = 0  # Today is over, so no days left
+        else:
+            days_left_weekly = 1  # Today is not over, so 1 day left (Wednesday itself)
+        else:
+        # For all other days, use normal calculation
+        if today_is_over:
+            days_left_weekly = 7 - (days_since_thurs + 1)
+        else:
+            days_left_weekly = 7 - days_since_thurs
     
     # NEW: Calculate remaining funds with adjusted amount
     remaining_funds = weekly_limit - spent_to_date + adjusted_amount
