@@ -106,6 +106,7 @@ with tab2:
     
     # NEW: Calculate remaining funds with adjusted amount
     remaining_funds = weekly_limit - spent_to_date + adjusted_amount
+    net_spent = spent_to_date - adjusted_amount
 
     # Avoid division by zero on Wednesday night
     if days_left_weekly > 0:
@@ -115,15 +116,17 @@ with tab2:
 
     st.divider()
     
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
     
     if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
         st.write(f"📅 **{days_left_weekly} days** remaining in your cycle")
     else:
-        col_b.metric("Allowed Daily Spend", "N/A")
+        col_b.metric("Allowed Daily Spend", "Last Day of the Week")
         st.warning("Last day of the weekly cycle! New budget starts tomorrow (Thursday).")
+
+    col_c.metric("Net Spent", f"${net_spent:.2f}")
 
     if remaining_funds < 0:
         st.error(f"Budget overspent by ${abs(remaining_funds):.2f}!")
