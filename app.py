@@ -120,7 +120,7 @@ with tab2:
     
     if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
-        st.write(f"📅 **{days_left_weekly} days** remaining in your cycle (starting tomorrow).")
+        st.write(f"📅 **{days_left_weekly} days** remaining in your cycle")
     else:
         col_b.metric("Allowed Daily Spend", "N/A")
         st.warning("Last day of the weekly cycle! New budget starts tomorrow (Thursday).")
