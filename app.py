@@ -68,9 +68,8 @@ if "ai_tokens_value" not in st.session_state:
     ai_state = load_state("ai_tokens")
     st.session_state.ai_tokens_value = ai_state.get("value", 632000)
 
-if "personal_budget_weekly_limit" not in st.session_state:
+if "personal_budget_spent" not in st.session_state:
     pb_state = load_state("personal_budget")
-    st.session_state.personal_budget_weekly_limit = pb_state.get("weekly_limit", 630.0)
     st.session_state.personal_budget_spent = pb_state.get("spent_to_date", 180.0)
     st.session_state.personal_budget_adjusted = pb_state.get("adjusted_amount", 0.0)
     st.session_state.personal_budget_today_is_over = pb_state.get("today_is_over", False)
@@ -119,8 +118,10 @@ with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**.")
     
+    # Set weekly budget to fixed value of 630
+    weekly_limit = 630.0  # Static value
+    
     # Load saved values
-    weekly_limit = st.number_input("Weekly Budget (AUD):", value=st.session_state.personal_budget_weekly_limit, step=10.0)
     spent_to_date = st.number_input("Total Spent so far (including today):", value=st.session_state.personal_budget_spent, step=1.0)
 
     # NEW: Add adjusted amount input field with default $$0
@@ -163,13 +164,11 @@ with tab2:
         daily_allowance_weekly = remaining_funds
 
     # Save state
-    st.session_state.personal_budget_weekly_limit = weekly_limit
     st.session_state.personal_budget_spent = spent_to_date
     st.session_state.personal_budget_adjusted = adjusted_amount
     st.session_state.personal_budget_today_is_over = today_is_over
     
     save_state("personal_budget", {
-        "weekly_limit": weekly_limit,
         "spent_to_date": spent_to_date,
         "adjusted_amount": adjusted_amount,
         "today_is_over": today_is_over
