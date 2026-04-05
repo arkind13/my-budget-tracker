@@ -119,7 +119,7 @@ with tab2:
     st.info("Week starts **Thursday**.")
     
     # Show weekly budget as a visual metric (not input)
-    st.metric("Weekly Budget", "$$630.00")
+    st.metric("Weekly Budget", "\\$$630.00")
     
     # Load saved values for inputs
     spent_to_date = st.number_input("Total Spent so far (including today):", value=st.session_state.personal_budget_spent, step=1.0)
@@ -178,19 +178,19 @@ with tab2:
     st.divider()
     
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Remaining Budget", f"$${remaining_funds:.2f}")
+    col_a.metric("Remaining Budget", f"\\$${remaining_funds:.2f}")
     
     if days_left_weekly > 0:
-        col_b.metric("Allowed Daily Spend", f"$${daily_allowance_weekly:.2f}")
+        col_b.metric("Allowed Daily Spend", f"\\$${daily_allowance_weekly:.2f}")
         st.write(f"📅 **{days_left_weekly} days** remaining in your cycle")
     else:
         col_b.metric("Allowed Daily Spend", "Last Day of the Week")
         st.warning("Last day of the weekly cycle! New budget starts tomorrow (Thursday).")
 
-    col_c.metric("Net Spent", f"$${net_spent:.2f}")
+    col_c.metric("Net Spent", f"\\$${net_spent:.2f}")
 
     if remaining_funds < 0:
-        st.error(f"Budget overspent by $${abs(remaining_funds):.2f}!")
+        st.error(f"Budget overspent by \\$${abs(remaining_funds):.2f}!")
 
     # Check what day we're actually working with
     st.write(f" Current weekday number: {current_weekday}")
@@ -275,15 +275,15 @@ with tab4:
     # Display Metrics
     st.divider()
     m1, m2, m3 = st.columns(3)
-    m1.metric("Estimated Net Pay", f"$${est_net:.2f}")
+    m1.metric("Estimated Net Pay", f"\\$${est_net:.2f}")
     m2.metric("Total Hours", f"{total_hrs} hrs")
     
     # Goal Tracker Delta
     goal_delta = est_net - NET_GOAL
-    m3.metric("Goal Status", f"$${est_net:.2f}", delta=f"$${goal_delta:.2f} vs $$520")
+    m3.metric("Goal Status", f"\\$${est_net:.2f}", delta=f"\\$${goal_delta:.2f} vs \\$$520")
 
     # Arsenal Themed Success/Warning
     if est_net >= NET_GOAL:
-        st.success(f"🏆 Top of the Table! You've cleared the $$520 target by $${goal_delta:.2f}.")
+        st.success(f"🏆 Top of the Table! You've cleared the \\$$520 target by \\$${goal_delta:.2f}.")
     else:
-        st.warning(f"⚠️ Needs a Late Goal! You are $${abs(goal_delta):.2f} short of your $$520 target.")
+        st.warning(f"⚠️ Needs a Late Goal! You are \\$${abs(goal_delta):.2f} short of your \\$$520 target.")
