@@ -286,4 +286,4 @@ with tab4:
     if est_net >= NET_GOAL:
         st.success(f"🏆 Top of the Table! You've cleared the $$520 target by $${goal_delta:.2f}.")
     else:
-        st.warning(f"⚠️ Needs a Late Goal! You are $${abs(goal_delta):.2f} short of your $520 target.")
+        st.warning(f"⚠️ Needs a Late Goal! You are $${abs(goal_delta):.2f} short of your $$520 target.")
