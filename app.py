@@ -2,7 +2,6 @@ import streamlit as st
 from datetime import datetime, timedelta
 import os, time
 import pickle
-import json
 
 os.environ['TZ'] = 'Australia/Sydney'
 time.tzset()
@@ -64,37 +63,24 @@ def load_state(tab_key):
         st.error(f"Error loading state: {e}")
         return {}
 
-def reset_values_on_schedule():
-    """Reset values based on schedule"""
-    current_day = NOW.weekday()  # 0=Monday, 6=Sunday
-    
-    # Reset AI Tokens tab on cycle reset
-    if NOW.day == RESET_DAY and NOW.hour >= RESET_HOUR and NOW.minute >= RESET_MIN:
-        st.session_state.ai_tokens_value = 0
-        save_state("ai_tokens", {"value": 0})
-    
-    # Reset Personal Budget tab on Thursday
-    if current_day == 3:  # Thursday
-        st.session_state.personal_budget_value = 0
-        save_state("personal_budget", {"value": 0})
-    
-    # Reset Woolies Pay tab on Monday
-    if current_day == 0:  # Monday
-        st.session_state.woolies_pay_value = 0
-        save_state("woolies_pay", {"value": 0})
-
 # Initialize session state for tabs
 if "ai_tokens_value" not in st.session_state:
     ai_state = load_state("ai_tokens")
     st.session_state.ai_tokens_value = ai_state.get("value", 632000)
 
-if "personal_budget_value" not in st.session_state:
+if "personal_budget_weekly_limit" not in st.session_state:
     pb_state = load_state("personal_budget")
-    st.session_state.personal_budget_value = pb_state.get("value", 630.0)
+    st.session_state.personal_budget_weekly_limit = pb_state.get("weekly_limit", 630.0)
+    st.session_state.personal_budget_spent = pb_state.get("spent_to_date", 180.0)
+    st.session_state.personal_budget_adjusted = pb_state.get("adjusted_amount", 0.0)
+    st.session_state.personal_budget_today_is_over = pb_state.get("today_is_over", False)
 
-if "woolies_pay_value" not in st.session_state:
+if "woolies_pay_norm_h" not in st.session_state:
     wp_state = load_state("woolies_pay")
-    st.session_state.woolies_pay_value = wp_state.get("value", 0)
+    st.session_state.woolies_pay_norm_h = wp_state.get("norm_h", 17.5)
+    st.session_state.woolies_pay_late_h = wp_state.get("late_h", 1.5)
+    st.session_state.woolies_pay_sun_h = wp_state.get("sun_h", 5.5)
+    st.session_state.woolies_pay_ph_h = wp_state.get("ph_h", 0.0)
 
 # --- APP INTERFACE ---
 st.title("🔴 Gunners Dashboard")
@@ -133,14 +119,15 @@ with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**.")
     
-    weekly_limit = st.number_input("Weekly Budget (AUD):", value=st.session_state.personal_budget_value, step=10.0)
-    spent_to_date = st.number_input("Total Spent so far (including today):", value=180.0, step=1.0)
+    # Load saved values
+    weekly_limit = st.number_input("Weekly Budget (AUD):", value=st.session_state.personal_budget_weekly_limit, step=10.0)
+    spent_to_date = st.number_input("Total Spent so far (including today):", value=st.session_state.personal_budget_spent, step=1.0)
 
     # NEW: Add adjusted amount input field with default $$0
-    adjusted_amount = st.number_input("Adjusted Amount (AUD):", value=0.0, step=1.0)
+    adjusted_amount = st.number_input("Adjusted Amount (AUD):", value=st.session_state.personal_budget_adjusted, step=1.0)
 
     # NEW: Add checkbox to indicate if today is over
-    today_is_over = st.checkbox("Today is over (count as completed day)")
+    today_is_over = st.checkbox("Today is over (count as completed day)", value=st.session_state.personal_budget_today_is_over)
     
     # Calculate days left (Thursday = Day 0, Wednesday = Day 6)
     current_weekday = NOW.weekday() 
@@ -174,6 +161,19 @@ with tab2:
         daily_allowance_weekly = remaining_funds / days_left_weekly
     else:
         daily_allowance_weekly = remaining_funds
+
+    # Save state
+    st.session_state.personal_budget_weekly_limit = weekly_limit
+    st.session_state.personal_budget_spent = spent_to_date
+    st.session_state.personal_budget_adjusted = adjusted_amount
+    st.session_state.personal_budget_today_is_over = today_is_over
+    
+    save_state("personal_budget", {
+        "weekly_limit": weekly_limit,
+        "spent_to_date": spent_to_date,
+        "adjusted_amount": adjusted_amount,
+        "today_is_over": today_is_over
+    })
 
     st.divider()
     
@@ -227,13 +227,13 @@ with tab4:
     row2_col1, row2_col2 = st.columns(2)
 
     with row1_col1:
-        norm_h = st.number_input("Standard Hours (Mon-Sat < 11pm):", value=17.5, step=0.5)
+        norm_h = st.number_input("Standard Hours (Mon-Sat < 11pm):", value=st.session_state.woolies_pay_norm_h, step=0.5)
     with row1_col2:
-        late_h = st.number_input("Late Night Hours (Mon-Sat > 11pm):", value=1.5, step=0.5)
+        late_h = st.number_input("Late Night Hours (Mon-Sat > 11pm):", value=st.session_state.woolies_pay_late_h, step=0.5)
     with row2_col1:
-        sun_h = st.number_input("Sunday Hours (All day):", value=5.5, step=0.5)
+        sun_h = st.number_input("Sunday Hours (All day):", value=st.session_state.woolies_pay_sun_h, step=0.5)
     with row2_col2:
-        ph_h = st.number_input("Public Holiday Hours:", value=0.0, step=0.5)
+        ph_h = st.number_input("Public Holiday Hours:", value=st.session_state.woolies_pay_ph_h, step=0.5)
 
     # Constants based on your payslip
     BASE_ORD = 26.9797
@@ -258,6 +258,19 @@ with tab4:
     est_tax = total_gross * 0.28
     est_net = (total_gross - est_tax) + LAUNDRY
     total_hrs = norm_h + late_h + sun_h + ph_h
+
+    # Save state
+    st.session_state.woolies_pay_norm_h = norm_h
+    st.session_state.woolies_pay_late_h = late_h
+    st.session_state.woolies_pay_sun_h = sun_h
+    st.session_state.woolies_pay_ph_h = ph_h
+    
+    save_state("woolies_pay", {
+        "norm_h": norm_h,
+        "late_h": late_h,
+        "sun_h": sun_h,
+        "ph_h": ph_h
+    })
 
     # Display Metrics
     st.divider()
