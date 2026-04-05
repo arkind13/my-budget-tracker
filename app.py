@@ -178,7 +178,7 @@ with tab2:
     st.divider()
     
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Remaining Budget", f"\\$${remaining_funds:.2f}")
+    col_a.metric("Remaining Budget", f"\\${remaining_funds:.2f}")
     
     if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"\\${daily_allowance_weekly:.2f}")
