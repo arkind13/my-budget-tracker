@@ -275,15 +275,15 @@ with tab4:
     # Display Metrics
     st.divider()
     m1, m2, m3 = st.columns(3)
-    m1.metric("Estimated Net Pay", f"\\$${est_net:.2f}")
+    m1.metric("Estimated Net Pay", f"\\${est_net:.2f}")
     m2.metric("Total Hours", f"{total_hrs} hrs")
     
     # Goal Tracker Delta
     goal_delta = est_net - NET_GOAL
-    m3.metric("Goal Status", f"\\$${est_net:.2f}", delta=f"\\$${goal_delta:.2f} vs \\$$520")
+    m3.metric("Goal Status", f"\\${est_net:.2f}", delta=f"\\${goal_delta:.2f} vs \\$520")
 
     # Arsenal Themed Success/Warning
     if est_net >= NET_GOAL:
-        st.success(f"🏆 Top of the Table! You've cleared the \\$$520 target by \\$${goal_delta:.2f}.")
+        st.success(f"🏆 Top of the Table! You've cleared the \\$520 target by \\${goal_delta:.2f}.")
     else:
-        st.warning(f"⚠️ Needs a Late Goal! You are \\$${abs(goal_delta):.2f} short of your \\$$520 target.")
+        st.warning(f"⚠️ Needs a Late Goal! You are \\${abs(goal_delta):.2f} short of your \\$520 target.")
