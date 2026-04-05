@@ -118,10 +118,10 @@ with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**.")
     
-    # Set weekly budget to fixed value of 630
-    weekly_limit = 630.0  # Static value
+    # Show weekly budget as a visual metric (not input)
+    st.metric("Weekly Budget", "$$630.00")
     
-    # Load saved values
+    # Load saved values for inputs
     spent_to_date = st.number_input("Total Spent so far (including today):", value=st.session_state.personal_budget_spent, step=1.0)
 
     # NEW: Add adjusted amount input field with default $$0
@@ -154,6 +154,7 @@ with tab2:
             days_left_weekly = 7 - days_since_thurs
     
     # NEW: Calculate remaining funds with adjusted amount
+    weekly_limit = 630.0  # Fixed weekly budget
     remaining_funds = weekly_limit - spent_to_date + adjusted_amount
     net_spent = spent_to_date - adjusted_amount
 
@@ -285,4 +286,4 @@ with tab4:
     if est_net >= NET_GOAL:
         st.success(f"🏆 Top of the Table! You've cleared the $$520 target by $${goal_delta:.2f}.")
     else:
-        st.warning(f"⚠️ Needs a Late Goal! You are $${abs(goal_delta):.2f} short of your $$520 target.")
+        st.warning(f"⚠️ Needs a Late Goal! You are $${abs(goal_delta):.2f} short of your $520 target.")
