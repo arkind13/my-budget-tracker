@@ -19,12 +19,14 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet."""
     try:
+        # ttl=0 ensures we fetch the latest data from the sheet
         df = conn.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
     
+    # Fallback defaults if sheet is empty or connection fails
     return {
         "AI Remaining Token": 2368000,
         "Total Spent So Far": 180.0,
@@ -37,22 +39,25 @@ def load_gsheet_data():
 
 def sync_to_cloud():
     """Pushes current UI values to Google Sheets."""
-    # We pull directly from session_state keys assigned to widgets
-    updates_dict = {
-        "AI Remaining Token": st.session_state.ai_in,
-        "Total Spent So Far": st.session_state.pb_spent,
-        "Adjusted Amount": st.session_state.pb_adj,
-        "Standard Hours": st.session_state.w_n,
-        "Sunday Hours": st.session_state.w_s,
-        "Late Night Hours": st.session_state.w_l,
-        "Public Holiday Hours": st.session_state.w_p
-    }
-    df = pd.DataFrame([updates_dict])
-    conn.update(worksheet="Sheet1", data=df)
-    st.toast("✅ Cloud Synced!")
+    try:
+        updates_dict = {
+            "AI Remaining Token": st.session_state.ai_in,
+            "Total Spent So Far": st.session_state.pb_spent,
+            "Adjusted Amount": st.session_state.pb_adj,
+            "Standard Hours": st.session_state.w_n,
+            "Sunday Hours": st.session_state.w_s,
+            "Late Night Hours": st.session_state.w_l,
+            "Public Holiday Hours": st.session_state.w_p
+        }
+        df = pd.DataFrame([updates_dict])
+        conn.update(worksheet="Sheet1", data=df)
+        st.toast("✅ Cloud Synced!")
+    except Exception as e:
+        st.error(f"Sync failed: {e}")
 
-# --- INITIALIZE DATA ---
-if "data_loaded" not in st.session_state:
+# --- INITIALIZE SESSION STATE ---
+# This block prevents the AttributeError by ensuring variables always exist
+if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
     st.session_state.ai_tokens_value = int(gs_data.get("AI Remaining Token", 2368000))
     st.session_state.pb_spent_val = float(gs_data.get("Total Spent So Far", 180.0))
@@ -61,17 +66,19 @@ if "data_loaded" not in st.session_state:
     st.session_state.w_s_val = float(gs_data.get("Sunday Hours", 5.5))
     st.session_state.w_l_val = float(gs_data.get("Late Night Hours", 1.5))
     st.session_state.w_p_val = float(gs_data.get("Public Holiday Hours", 0.0))
-    st.session_state.data_loaded = True
+    st.session_state.initialized = True
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("🔄 Connection")
-    if st.button("Refresh from Sheet"):
-        st.session_state.clear()
+    if st.button("Manual Refresh"):
+        # Clearing state forces a fresh reload from the sheet
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
-    st.success("Connected to: Personal Dashboard")
+    st.success("Connected: Personal Dashboard")
 
-# --- DATE CALCULATIONS ---
+# --- DATE CALCULATIONS (SYDNEY) ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -90,6 +97,7 @@ start_date, end_date = cycle_dates(NOW)
 days_passed = max((NOW - start_date).days, 1)
 days_remaining = max((end_date - NOW).days, 1)
 
+# --- MAIN INTERFACE ---
 st.title("📊 Personal Dashboard")
 tab1, tab2, tab3 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay"])
 
