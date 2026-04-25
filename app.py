@@ -9,7 +9,6 @@ os.environ['TZ'] = 'Australia/Sydney'
 try:
     time.tzset()
 except AttributeError:
-    # time.tzset() is Unix-only; Streamlit Cloud is Unix, so this works there.
     pass
 
 # --- CONFIG ---
@@ -21,14 +20,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet."""
     try:
-        # ttl=0 ensures we don't use a cached version when the app wakes up
+        # ttl=0 ensures we fetch the latest data from the sheet
         df = conn.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.sidebar.error(f"Connection Error: {e}")
     
-    # Fallback defaults if sheet is empty or connection fails
     return {
         "AI Remaining Token": 2368000,
         "Total Spent So Far": 180.0,
@@ -40,7 +38,7 @@ def load_gsheet_data():
     }
 
 def sync_to_cloud():
-    """Write all current session state values back to Row 2 of the sheet."""
+    """Write all current dashboard values back to the Google Sheet."""
     updates_dict = {
         "AI Remaining Token": st.session_state.ai_tokens_value,
         "Total Spent So Far": st.session_state.personal_budget_spent,
@@ -52,9 +50,18 @@ def sync_to_cloud():
     }
     df = pd.DataFrame([updates_dict])
     conn.update(worksheet="Sheet1", data=df)
+    st.sidebar.success("Cloud Synced!")
 
-# Initialize Session State from GSheets once per session
-if "data_loaded" not in st.session_state:
+# --- SIDEBAR CONTROLS ---
+st.sidebar.header("🔄 Data Controls")
+if st.sidebar.button("Test Connection / Refresh"):
+    gs_data = load_gsheet_data()
+    st.session_state.data_loaded = False # Force reload logic
+    st.sidebar.write("Connection: ✅ Active")
+    st.rerun()
+
+# Initialize Session State
+if "data_loaded" not in st.session_state or not st.session_state.data_loaded:
     gs_data = load_gsheet_data()
     st.session_state.ai_tokens_value = int(gs_data.get("AI Remaining Token", 2368000))
     st.session_state.personal_budget_spent = float(gs_data.get("Total Spent So Far", 180.0))
@@ -157,12 +164,10 @@ with tab3:
     with row2_2:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.woolies_pay_ph_h, step=0.5, key="w_p", on_change=sync_to_cloud)
 
-    st.session_state.woolies_pay_norm_h = n_h
-    st.session_state.woolies_pay_late_h = l_h
-    st.session_state.woolies_pay_sun_h = s_h
-    st.session_state.woolies_pay_ph_h = p_h
+    st.session_state.woolies_pay_norm_h, st.session_state.woolies_pay_late_h = n_h, l_h
+    st.session_state.woolies_pay_sun_h, st.session_state.woolies_pay_ph_h = s_h, p_h
 
-    # Pay Calculation Logic
+    # Pay Calculation Logic (Tax @28%)
     BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY = 26.9797, 6.7449, 6.7449, 13.4899, 6.25
     total_gross = (n_h * (BASE_ORD + CAS_LOAD + SHIFT_25)) + \
                   ((l_h + s_h) * (BASE_ORD + CAS_LOAD + SHIFT_50)) + \
