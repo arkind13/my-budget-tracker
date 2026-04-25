@@ -74,7 +74,7 @@ with st.sidebar:
         st.rerun()
     st.success("Connected: Personal Dashboard")
 
-# --- DATE CALCULATIONS (SYDNEY) ---
+# --- DATE CALCULATIONS ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -91,7 +91,7 @@ def cycle_dates(ref):
 
 start_date, end_date = cycle_dates(NOW)
 days_passed = max((NOW - start_date).days, 1)
-days_remaining = max((end_date - NOW).days, 1)
+days_remaining_monthly = max((end_date - NOW).days, 1)
 
 # --- APP INTERFACE ---
 st.title("📊 Personal Dashboard")
@@ -108,8 +108,8 @@ with tab1:
     
     used_to_date = MONTHLY_LIMIT - tokens_rem
     avg_daily = used_to_date / days_passed
-    daily_budget = tokens_rem / days_remaining
-    projected = used_to_date + (avg_daily * days_remaining)
+    daily_budget = tokens_rem / days_remaining_monthly
+    projected = used_to_date + (avg_daily * days_remaining_monthly)
 
     st.write(f"### Currently Used: {used_to_date:,}")
     c1, c2, c3 = st.columns(3)
@@ -120,7 +120,7 @@ with tab1:
     if projected > MONTHLY_LIMIT:
         st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected - MONTHLY_LIMIT):,} tokens.")
     else:
-        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens remaining.")
+        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens.")
 
 # --- TAB 2: PERSONAL BUDGET ---
 with tab2:
@@ -136,7 +136,6 @@ with tab2:
                          value=st.session_state.pb_adj_val, 
                          step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
-    # Restore the "Today is over" checkbox logic
     today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
     
     current_weekday = NOW.weekday() 
@@ -150,15 +149,14 @@ with tab2:
     weekly_limit = 630.0  
     remaining_funds = weekly_limit - spent + adj
     net_spent = spent - adj
-    
-    if days_left_weekly > 0:
-        daily_allowance_weekly = remaining_funds / days_left_weekly
-    else:
-        daily_allowance_weekly = remaining_funds
+    daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
 
     st.divider()
     col_a, col_b, col_c = st.columns(3)
+    
+    # Show days remaining in small font under budget
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
+    col_a.caption(f"🗓️ {days_left_weekly} days remaining")
     
     if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
@@ -176,11 +174,11 @@ with tab3:
     row2_col1, row2_col2 = st.columns(2)
 
     with row1_col1:
-        n_h = st.number_input("Standard Hours (Mon-Sat < 11pm):", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
+        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
     with row1_col2:
-        l_h = st.number_input("Late Night Hours (Mon-Sat > 11pm):", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
+        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
     with row2_col1:
-        s_h = st.number_input("Sunday Hours (All day):", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
     with row2_col2:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
 
@@ -196,7 +194,7 @@ with tab3:
     m1, m2, m3 = st.columns(3)
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
     m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
-    goal_delta = est_net - NET_GOAL
     
-    # Updated Goal Status as requested
-    m3.metric("Goal Status", f"${goal_delta:.2f}")
+    # Goal status with dynamic coloring (Positive = Green, Negative = Red)
+    goal_delta = est_net - NET_GOAL
+    m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
