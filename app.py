@@ -19,14 +19,12 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet."""
     try:
-        # ttl=0 ensures we fetch the latest data from the sheet
         df = conn.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
     
-    # Fallback defaults if sheet is empty or connection fails
     return {
         "AI Remaining Token": 2368000,
         "Total Spent So Far": 180.0,
@@ -56,7 +54,6 @@ def sync_to_cloud():
         st.error(f"Sync failed: {e}")
 
 # --- INITIALIZE SESSION STATE ---
-# This block prevents the AttributeError by ensuring variables always exist
 if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
     st.session_state.ai_tokens_value = int(gs_data.get("AI Remaining Token", 2368000))
@@ -72,13 +69,12 @@ if "initialized" not in st.session_state:
 with st.sidebar:
     st.header("🔄 Connection")
     if st.button("Manual Refresh"):
-        # Clearing state forces a fresh reload from the sheet
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
     st.success("Connected: Personal Dashboard")
 
-# --- DATE CALCULATIONS (SYDNEY) ---
+# --- DATE CALCULATIONS ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -97,7 +93,7 @@ start_date, end_date = cycle_dates(NOW)
 days_passed = max((NOW - start_date).days, 1)
 days_remaining = max((end_date - NOW).days, 1)
 
-# --- MAIN INTERFACE ---
+# --- APP INTERFACE ---
 st.title("📊 Personal Dashboard")
 tab1, tab2, tab3 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay"])
 
@@ -124,12 +120,14 @@ with tab1:
     if projected > MONTHLY_LIMIT:
         st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected - MONTHLY_LIMIT):,} tokens.")
     else:
-        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens.")
+        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens remaining.")
 
-# --- TAB 2: WEEKLY BUDGET ---
+# --- TAB 2: PERSONAL BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**.")
+    
+    st.metric("Weekly Budget", "$630.00")
     
     spent = st.number_input("Total Spent so far (including today):", 
                            value=st.session_state.pb_spent_val, 
@@ -138,35 +136,54 @@ with tab2:
                          value=st.session_state.pb_adj_val, 
                          step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
+    # Thursday logic
     days_since_thurs = (NOW.weekday() - 3) % 7
-    days_left = 7 - days_since_thurs
-    rem_funds = 630.0 - spent + adj
+    days_left_weekly = 7 - days_since_thurs
     
+    weekly_limit = 630.0  
+    remaining_funds = weekly_limit - spent + adj
+    net_spent = spent - adj
+    daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
+
     st.divider()
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Remaining Budget", f"${rem_funds:.2f}")
-    col_b.metric("Allowed Daily Spend", f"${(rem_funds / max(days_left, 1)):.2f}")
-    col_c.metric("Net Spent", f"${(spent - adj):.2f}")
+    col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
+    
+    if days_left_weekly > 1:
+        col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
+    else:
+        col_b.metric("Allowed Daily Spend", "Last Day")
+
+    col_c.metric("Net Spent", f"${net_spent:.2f}")
 
 # --- TAB 3: WOOLIES PAY ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
     st.info("Rates include Casual Loading and Shift Penalties. Tax @28%")
 
-    r1, r2 = st.columns(2)
-    with r1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
-        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
-    with r2:
-        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+    row1_col1, row1_col2 = st.columns(2)
+    row2_col1, row2_col2 = st.columns(2)
+
+    with row1_col1:
+        n_h = st.number_input("Standard Hours (Mon-Sat < 11pm):", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
+    with row1_col2:
+        l_h = st.number_input("Late Night Hours (Mon-Sat > 11pm):", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
+    with row2_col1:
+        s_h = st.number_input("Sunday Hours (All day):", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+    with row2_col2:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
 
     BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY, NET_GOAL = 26.9797, 6.7449, 6.7449, 13.4899, 6.25, 520.00
-    total_gross = (n_h * (BASE_ORD+CAS_LOAD+SHIFT_25)) + ((l_h+s_h) * (BASE_ORD+CAS_LOAD+SHIFT_50)) + (p_h * (BASE_ORD*2.5))
+    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25
+    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50
+    rate_ph = BASE_ORD * 2.5
+
+    total_gross = (n_h * rate_std) + ((l_h + s_h) * rate_pen) + (p_h * rate_ph)
     est_net = (total_gross * 0.72) + LAUNDRY
 
     st.divider()
     m1, m2, m3 = st.columns(3)
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
     m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
-    m3.metric("Goal Status", f"${est_net:.2f}", delta=f"${est_net - NET_GOAL:.2f} vs $520")
+    goal_delta = est_net - NET_GOAL
+    m3.metric("Goal Status", f"${est_net:.2f}", delta=f"${goal_delta:.2f} vs $520")
