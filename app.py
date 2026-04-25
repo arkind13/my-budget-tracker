@@ -74,7 +74,7 @@ with st.sidebar:
         st.rerun()
     st.success("Connected: Personal Dashboard")
 
-# --- DATE CALCULATIONS ---
+# --- DATE CALCULATIONS (SYDNEY) ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -136,20 +136,31 @@ with tab2:
                          value=st.session_state.pb_adj_val, 
                          step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
-    # Thursday logic
-    days_since_thurs = (NOW.weekday() - 3) % 7
-    days_left_weekly = 7 - days_since_thurs
+    # Restore the "Today is over" checkbox logic
+    today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
+    
+    current_weekday = NOW.weekday() 
+    days_since_thurs = (current_weekday - 3) % 7
+
+    if current_weekday == 2:  # Wednesday
+        days_left_weekly = 0 if today_is_over else 1
+    else:
+        days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
     
     weekly_limit = 630.0  
     remaining_funds = weekly_limit - spent + adj
     net_spent = spent - adj
-    daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
+    
+    if days_left_weekly > 0:
+        daily_allowance_weekly = remaining_funds / days_left_weekly
+    else:
+        daily_allowance_weekly = remaining_funds
 
     st.divider()
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
     
-    if days_left_weekly > 1:
+    if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
     else:
         col_b.metric("Allowed Daily Spend", "Last Day")
@@ -186,4 +197,6 @@ with tab3:
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
     m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
     goal_delta = est_net - NET_GOAL
-    m3.metric("Goal Status", f"${est_net:.2f}", delta=f"${goal_delta:.2f} vs $520")
+    
+    # Updated Goal Status as requested
+    m3.metric("Goal Status", f"${goal_delta:.2f}")
