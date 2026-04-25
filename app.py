@@ -7,17 +7,7 @@ os.environ['TZ'] = 'Australia/Sydney'
 time.tzset()
 
 # --- CONFIG ---
-st.set_page_config(page_title="Gunners Budget Tracker", layout="wide", page_icon="🔴")
-
-# --- ARSENAL DATA (Update these after each match) ---
-LAST_MATCH_TXT = "Arsenal 3 - 0 Sunderland (Premier League)"
-NEXT_OPPONENT = "Brentford (A) 7th"
-NEXT_KICKOFF = "07:00 AM, Fri 13 Feb (SYD)"
-PL_TABLE = {
-    "Pos": [1, 2, 3, 4],
-    "Team": ["Arsenal", "Man City", "Aston Villa", "Man Utd"],
-    "Pts": [56, 47, 47, 44]
-}
+st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
 # --- DATE CALCULATIONS (SYDNEY TIME) ---
 NOW = datetime.now()
@@ -66,7 +56,6 @@ def load_state(tab_key):
 # Initialize session state for tabs
 if "ai_tokens_value" not in st.session_state:
     ai_state = load_state("ai_tokens")
-    # Defaulting to a high number since the input is now "Remaining"
     st.session_state.ai_tokens_value = ai_state.get("value", 2368000)
 
 if "personal_budget_spent" not in st.session_state:
@@ -83,22 +72,19 @@ if "woolies_pay_norm_h" not in st.session_state:
     st.session_state.woolies_pay_ph_h = wp_state.get("ph_h", 0.0)
 
 # --- APP INTERFACE ---
-st.title("🔴 Gunners Dashboard")
-tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "⚽ Arsenal FC", "🛒 Woolies Pay"])
+st.title("📊 Personal Dashboard")
+tab1, tab2, tab3 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay"])
 
-# --- TAB 1: AI FIESTA TOKENS (UPDATED FOR REMAINING TOKENS) ---
+# --- TAB 1: AI TOKENS ---
 with tab1:
-    st.header("AI Fiesta Token Cycle")
+    st.header("AI Token Cycle")
     st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
     
-    # User now inputs REMAINING tokens from the app
     remaining_tokens = st.number_input("Tokens Remaining (from App):", value=st.session_state.ai_tokens_value, step=1000, format="%i")
     
-    # Save the value for next session
     st.session_state.ai_tokens_value = remaining_tokens
     save_state("ai_tokens", {"value": remaining_tokens})
 
-    # Calculations based on REMAINING tokens
     used_to_date = MONTHLY_LIMIT - remaining_tokens
     avg_spent_daily = used_to_date / days_passed_monthly
     daily_allowance_remaining = remaining_tokens / days_remaining_monthly
@@ -111,20 +97,18 @@ with tab1:
     c2.metric("Daily Budget", f"{int(daily_allowance_remaining):,} tokens", delta=f"{int(daily_allowance_remaining - avg_spent_daily):,} vs avg")
     c3.metric("Projected Total", f"{int(projected_total):,} / 3,000,000")
 
-    # Arsenal Fan Themed Alerts
     if projected_total > MONTHLY_LIMIT:
-        st.error(f"⚠️ We're losing the lead! Projected to exceed by {int(projected_total - MONTHLY_LIMIT):,} tokens.")
+        st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected_total - MONTHLY_LIMIT):,} tokens.")
     else:
-        st.success(f"✅ Clean sheet! Buffer of {int(MONTHLY_LIMIT - projected_total):,} tokens remaining.")
+        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected_total):,} tokens remaining.")
 
-# --- TAB 2: PERSONAL WEEKLY BUDGET (THURS START) ---
+# --- TAB 2: PERSONAL WEEKLY BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**.")
     
     st.metric("Weekly Budget", "$630.00")
     
-    # Corrected input fields (Fixed unclosed parenthesis)
     spent_to_date = st.number_input("Total Spent so far (including today):", value=st.session_state.personal_budget_spent, step=1.0)
     adjusted_amount = st.number_input("Adjusted Amount (AUD):", value=st.session_state.personal_budget_adjusted, step=1.0)
     today_is_over = st.checkbox("Today is over (count as completed day)", value=st.session_state.personal_budget_today_is_over)
@@ -132,7 +116,6 @@ with tab2:
     current_weekday = NOW.weekday() 
     days_since_thurs = (current_weekday - 3) % 7
 
-    # Time-based logic for today's completion
     if current_weekday == 2:  # Wednesday
         days_left_weekly = 0 if today_is_over else 1
     else:
@@ -147,7 +130,6 @@ with tab2:
     else:
         daily_allowance_weekly = remaining_funds
 
-    # Save state
     st.session_state.personal_budget_spent = spent_to_date
     st.session_state.personal_budget_adjusted = adjusted_amount
     st.session_state.personal_budget_today_is_over = today_is_over
@@ -169,26 +151,8 @@ with tab2:
 
     col_c.metric("Net Spent", f"${net_spent:.2f}")
 
-# --- TAB 3: ARSENAL FC ---
+# --- TAB 3: WOOLWORTHS PAY CALCULATOR ---
 with tab3:
-    st.header("⚽ Match Day Centre")
-    st.info(f"✅ **Last Match:** {LAST_MATCH_TXT}")
-
-    col_x, col_y = st.columns(2)
-    with col_x:
-        st.subheader("Next Opponent")
-        st.markdown(f"### {NEXT_OPPONENT}")
-        st.write("🏆 Premier League")
-    with col_y:
-        st.subheader("Kick-off (SYD)")
-        st.markdown(f"### {NEXT_KICKOFF}")
-    
-    st.divider()
-    st.subheader("Premier League Table (Top 4)")
-    st.table(PL_TABLE)
-
-# --- TAB 4: WOOLWORTHS PAY CALCULATOR ---
-with tab4:
     st.header("🛒 Woolies Pay Calculator")
     st.info("Rates include Casual Loading and Shift Penalties. Tax @28%")
 
@@ -213,7 +177,6 @@ with tab4:
     est_tax = total_gross * 0.28
     est_net = (total_gross - est_tax) + LAUNDRY
 
-    # Save state
     st.session_state.woolies_pay_norm_h, st.session_state.woolies_pay_late_h = norm_h, late_h
     st.session_state.woolies_pay_sun_h, st.session_state.woolies_pay_ph_h = sun_h, ph_h
     save_state("woolies_pay", {"norm_h": norm_h, "late_h": late_h, "sun_h": sun_h, "ph_h": ph_h})
