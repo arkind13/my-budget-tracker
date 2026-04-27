@@ -18,11 +18,11 @@ st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="�
 # --- GOOGLE SHEETS CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL for the separate Electricity Bills file
-ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit?gid=1988111189#gid=1988111189"
+# --- CONFIGURATION: PASTE YOUR FULL URL HERE ---
+ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit?gid=1978947189#gid=1978947189"
 
 def load_gsheet_data():
-    """Fetch data from the 'Personal Dashboard' sheet."""
+    """Fetch data from the 'Personal Dashboard' sheet (Main Connection)."""
     try:
         df = conn.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
@@ -79,7 +79,7 @@ with st.sidebar:
         st.rerun()
     st.success("Connected: Personal Dashboard")
 
-# --- DATE CALCULATIONS ---
+# --- DATE CALCULATIONS (AI Tab) ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -105,31 +105,39 @@ tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "�
 # --- TAB 1: AI TOKENS ---
 with tab1:
     st.header("AI Token Cycle")
-    tokens_rem = st.number_input("Tokens Remaining:", value=st.session_state.ai_tokens_value, step=1000, key="ai_in", on_change=sync_to_cloud)
+    st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
+    
+    tokens_rem = st.number_input("Tokens Remaining (from App):", 
+                                 value=st.session_state.ai_tokens_value, 
+                                 step=1000, key="ai_in", on_change=sync_to_cloud)
+    
     used_to_date = MONTHLY_LIMIT - tokens_rem
     avg_daily = used_to_date / days_passed
     daily_budget = tokens_rem / days_remaining_monthly
     projected = used_to_date + (avg_daily * days_remaining_monthly)
-    
+
     st.write(f"### Currently Used: {used_to_date:,}")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Avg Daily Spent", f"{int(avg_daily):,}")
-    c2.metric("Daily Budget", f"{int(daily_budget):,}")
-    c3.metric("Projected Total", f"{int(projected):,}")
+    c1.metric("Avg Daily Spent", f"{int(avg_daily):,} tokens")
+    c2.metric("Daily Budget", f"{int(daily_budget):,} tokens")
+    c3.metric("Projected Total", f"{int(projected):,} / 3.0M")
 
 # --- TAB 2: PERSONAL BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
-    spent = st.number_input("Total Spent:", value=st.session_state.pb_spent_val, step=1.0, key="pb_spent", on_change=sync_to_cloud)
-    adj = st.number_input("Adjusted Amount:", value=st.session_state.pb_adj_val, step=1.0, key="pb_adj", on_change=sync_to_cloud)
+    spent = st.number_input("Total Spent so far:", value=st.session_state.pb_spent_val, step=1.0, key="pb_spent", on_change=sync_to_cloud)
+    adj = st.number_input("Adjusted Amount (AUD):", value=st.session_state.pb_adj_val, step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
     current_weekday = NOW.weekday() 
     days_since_thurs = (current_weekday - 3) % 7
-    days_left = 7 - days_since_thurs
+    days_left_weekly = (7 - days_since_thurs)
     
-    rem = 630.0 - spent + adj
-    st.metric("Remaining Budget", f"${rem:.2f}")
-    st.caption(f"{days_left} days remaining")
+    remaining_funds = 630.0 - spent + adj
+    st.divider()
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
+    col_b.metric("Days Remaining", f"{days_left_weekly} Days")
+    col_c.metric("Net Spent", f"${spent - adj:.2f}")
 
 # --- TAB 3: WOOLIES PAY ---
 with tab3:
@@ -139,40 +147,70 @@ with tab3:
     s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
     p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
 
-    total_gross = (n_h * 33.72) + ((l_h + s_h) * 40.46) + (p_h * 67.45) # Simplified Rates
-    est_net = (total_gross * 0.72) + 6.25
-    st.metric("Estimated Net Pay", f"${est_net:.2f}")
+    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY = 26.9797, 6.7449, 6.7449, 13.4899, 6.25
+    total_gross = (n_h * (BASE_ORD+CAS_LOAD+SHIFT_25)) + ((l_h + s_h) * (BASE_ORD+CAS_LOAD+SHIFT_50)) + (p_h * (BASE_ORD*2.5))
+    est_net = (total_gross * 0.72) + LAUNDRY
+
+    st.divider()
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Estimated Net Pay", f"${est_net:.2f}")
+    m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
+    m3.metric("Goal Status", f"${est_net - 520:.2f}", delta=f"${est_net - 520:.2f}")
 
 # --- TAB 4: UTILITY TRACKER ---
 with tab4:
     st.header("⚡ Electricity Usage & Cost")
-    try:
-        # Fetching from the second spreadsheet
-        df_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
-        
-        # Columns: E(4)=End Date, F(5)=Days, H(7)=Usage/Day, N(13)=Amt/Day
-        df_plot = df_raw.iloc[:, [4, 5, 7, 13]].copy()
-        df_plot.columns = ["Date", "Days", "Usage", "Amount"]
-        
-        # Data Cleaning
-        df_plot["Date"] = pd.to_datetime(df_plot["Date"])
-        df_plot = df_plot.sort_values("Date").tail(10)
+    
+    if "YOUR_ACTUAL_URL_HERE" in ELEC_SHEET_URL:
+        st.warning("Please update the ELEC_SHEET_URL in the code with your Google Sheet URL.")
+    else:
+        try:
+            # Step 1: Read the full sheet (Sheet1)
+            df_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+            
+            # Step 2: Grab only Columns E(4), F(5), H(7), N(13) and take the last 10 rows
+            # Using .tail(10) ensures we skip any headers or old data at the top
+            df_elec = df_raw.iloc[:, [4, 5, 7, 13]].tail(10).copy()
+            df_elec.columns = ["End Date", "Billing Days", "Usage Per Day", "Amount Per Day"]
+            
+            # Step 3: Explicit cleaning to ensure they are numeric/dates
+            df_elec["End Date"] = pd.to_datetime(df_elec["End Date"], errors='coerce')
+            df_elec["Billing Days"] = pd.to_numeric(df_elec["Billing Days"], errors='coerce')
+            df_elec["Usage Per Day"] = pd.to_numeric(df_elec["Usage Per Day"], errors='coerce')
+            df_elec["Amount Per Day"] = pd.to_numeric(df_elec["Amount Per Day"], errors='coerce')
+            
+            # Remove any rows that failed conversion
+            df_elec = df_elec.dropna()
 
-        # Plotly Multi-axis Chart
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        
-        # Bar: Billing Cycle Days
-        fig.add_trace(go.Bar(x=df_plot["Date"], y=df_plot["Days"], name="Days in Bill", marker_color='lightgrey', opacity=0.5), secondary_y=True)
-        
-        # Line: Usage
-        fig.add_trace(go.Scatter(x=df_plot["Date"], y=df_plot["Usage"], name="Usage (kWh/Day)", line=dict(color='blue', width=3)), secondary_y=False)
-        
-        # Line: Amount
-        fig.add_trace(go.Scatter(x=df_plot["Date"], y=df_plot["Amount"], name="Cost ($/Day)", line=dict(color='red', width=3, dash='dot')), secondary_y=False)
+            # Step 4: Create Plotly Visual
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-        fig.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        st.plotly_chart(fig, use_container_width=True)
+            # Bar: Days in Cycle (Secondary Axis)
+            fig.add_trace(
+                go.Bar(x=df_elec["End Date"], y=df_elec["Billing Days"], name="Days", 
+                       marker_color='rgba(150, 150, 150, 0.2)'),
+                secondary_y=True,
+            )
 
-    except Exception as e:
-        st.warning("Connect your Electricity sheet by pasting the URL in the code.")
-        st.error(f"Error: {e}")
+            # Line: Usage
+            fig.add_trace(
+                go.Scatter(x=df_elec["End Date"], y=df_elec["Usage Per Day"], name="kWh/Day", 
+                           line=dict(color='royalblue', width=4)),
+                secondary_y=False,
+            )
+
+            # Line: Cost
+            fig.add_trace(
+                go.Scatter(x=df_elec["End Date"], y=df_elec["Amount Per Day"], name="$/Day", 
+                           line=dict(color='firebrick', width=4, dash='dot')),
+                secondary_y=False,
+            )
+
+            fig.update_layout(title_text="Last 10 Electricity Bills", hovermode="x unified", legend=dict(orientation="h", y=1.1))
+            fig.update_yaxes(title_text="Usage & Cost", secondary_y=False)
+            fig.update_yaxes(title_text="Days", secondary_y=True)
+
+            st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Error fetching data: {e}")
