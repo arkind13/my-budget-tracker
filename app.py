@@ -108,42 +108,103 @@ tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "�
 with tab1:
     st.header("AI Token Cycle")
     st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
-    tokens_rem = st.number_input("Tokens Remaining:", value=st.session_state.ai_tokens_value, step=1000, key="ai_in", on_change=sync_to_cloud)
     
-    used = MONTHLY_LIMIT - tokens_rem
-    avg_daily = used / days_passed
+    tokens_rem = st.number_input("Tokens Remaining (from App):", 
+                                 value=st.session_state.ai_tokens_value, 
+                                 step=1000, key="ai_in", on_change=sync_to_cloud)
+    
+    used_to_date = MONTHLY_LIMIT - tokens_rem
+    avg_daily = used_to_date / days_passed
     daily_budget = tokens_rem / days_remaining_monthly
-    
-    st.metric("Currently Used", f"{used:,}")
-    c1, c2 = st.columns(2)
+    projected = used_to_date + (avg_daily * days_remaining_monthly)
+
+    st.write(f"### Currently Used: {used_to_date:,}")
+    c1, c2, c3 = st.columns(3)
     c1.metric("Avg Daily Spent", f"{int(avg_daily):,} tokens")
-    c2.metric("Daily Budget Left", f"{int(daily_budget):,} tokens")
+    c2.metric("Daily Budget", f"{int(daily_budget):,} tokens", delta=f"{int(daily_budget - avg_daily):,} vs avg")
+    c3.metric("Projected Total", f"{int(projected):,} / 3.0M")
+
+    if projected > MONTHLY_LIMIT:
+        st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected - MONTHLY_LIMIT):,} tokens.")
+    else:
+        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens.")
 
 # --- TAB 2: PERSONAL BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
-    spent = st.number_input("Total Spent:", value=st.session_state.pb_spent_val, step=1.0, key="pb_spent", on_change=sync_to_cloud)
-    adj = st.number_input("Adjusted Amount:", value=st.session_state.pb_adj_val, step=1.0, key="pb_adj", on_change=sync_to_cloud)
+    st.info("Week starts **Thursday**.")
     
-    rem_budget = 630.0 - spent + adj
-    st.metric("Remaining Budget", f"${rem_budget:.2f}")
+    st.metric("Weekly Budget", "$630.00")
+    
+    spent = st.number_input("Total Spent so far (including today):", 
+                           value=st.session_state.pb_spent_val, 
+                           step=1.0, key="pb_spent", on_change=sync_to_cloud)
+    adj = st.number_input("Adjusted Amount (AUD):", 
+                         value=st.session_state.pb_adj_val, 
+                         step=1.0, key="pb_adj", on_change=sync_to_cloud)
+    
+    today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
+    
+    current_weekday = NOW.weekday() 
+    days_since_thurs = (current_weekday - 3) % 7
+
+    if current_weekday == 2:  # Wednesday
+        days_left_weekly = 0 if today_is_over else 1
+    else:
+        days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
+    
+    weekly_limit = 630.0  
+    remaining_funds = weekly_limit - spent + adj
+    net_spent = spent - adj
+    daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
+
+    st.divider()
+    col_a, col_b, col_c = st.columns(3)
+    
+    # Show days remaining in small font under budget
+    col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
+    col_a.caption(f"🗓️ {days_left_weekly} days remaining")
+    
+    if days_left_weekly > 0:
+        col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
+    else:
+        col_b.metric("Allowed Daily Spend", "Last Day")
+
+    col_c.metric("Net Spent", f"${net_spent:.2f}")
 
 # --- TAB 3: WOOLIES PAY ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    col1, col2 = st.columns(2)
-    with col1:
-        w_n = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
-        w_s = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
-    with col2:
-        w_l = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
-        w_p = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
-    
-    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY = 26.9797, 6.7449, 6.7449, 13.4899, 6.25
-    gross = (w_n * (BASE_ORD+CAS_LOAD+SHIFT_25)) + ((w_s + w_l) * (BASE_ORD+CAS_LOAD+SHIFT_50)) + (w_p * (BASE_ORD*2.5))
-    net = (gross * 0.72) + LAUNDRY
+    st.info("Rates include Casual Loading and Shift Penalties. Tax @28%")
+
+    row1_col1, row1_col2 = st.columns(2)
+    row2_col1, row2_col2 = st.columns(2)
+
+    with row1_col1:
+        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
+    with row1_col2:
+        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
+    with row2_col1:
+        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+    with row2_col2:
+        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
+
+    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY, NET_GOAL = 26.9797, 6.7449, 6.7449, 13.4899, 6.25, 520.00
+    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25
+    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50
+    rate_ph = BASE_ORD * 2.5
+
+    total_gross = (n_h * rate_std) + ((l_h + s_h) * rate_pen) + (p_h * rate_ph)
+    est_net = (total_gross * 0.72) + LAUNDRY
+
     st.divider()
-    st.metric("Estimated Net Pay", f"${net:.2f}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Estimated Net Pay", f"${est_net:.2f}")
+    m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
+    
+    # Goal status with dynamic coloring (Positive = Green, Negative = Red)
+    goal_delta = est_net - NET_GOAL
+    m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
 
 # --- TAB 4: UTILITY TRACKER ---
 with tab4:
