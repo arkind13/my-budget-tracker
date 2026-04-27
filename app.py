@@ -130,66 +130,55 @@ with tab4:
         # Step 1: Read the full sheet (Sheet1)
         df_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
         
-        # Step 2: Grab Columns based on user feedback of shifting
-        # Since F(5) was taking G(6), we shift all indices back by 1
-        # Target: E(index 3), F(index 4), H(index 6), N(index 12)
-        df_working = df_raw.iloc[:, [3, 4, 6, 12]].copy()
-        df_working.columns = ["Date", "Days", "Usage", "Amount"]
+        # Step 2: Grab Columns (adjusted for the -1 index shift based on your sheet structure)
+        # E(3)=Date, F(4)=Days, H(6)=Usage, K(9)=Net Amt, N(12)=Amt/Day
+        df_working = df_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
+        df_working.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         
-        # Step 3: Advanced Date Parsing
-        # dayfirst=True handles Australian/European formats (10-Aug)
+        # Step 3: Cleaning and Parsing
         df_working["Date"] = pd.to_datetime(df_working["Date"], errors='coerce', dayfirst=True)
+        df_working["Billing Days"] = pd.to_numeric(df_working["Billing Days"], errors='coerce')
+        df_working["Usage Per Day"] = pd.to_numeric(df_working["Usage Per Day"], errors='coerce')
+        df_working["Net Amount"] = pd.to_numeric(df_working["Net Amount"], errors='coerce')
+        df_working["Amount Per Day"] = pd.to_numeric(df_working["Amount Per Day"], errors='coerce')
         
-        # Step 4: Numeric Conversion
-        df_working["Days"] = pd.to_numeric(df_working["Days"], errors='coerce')
-        df_working["Usage"] = pd.to_numeric(df_working["Usage"], errors='coerce')
-        df_working["Amount"] = pd.to_numeric(df_working["Amount"], errors='coerce')
-        
-        # Filter out invalid rows (like headers or empty rows) and take last 10
-        df_clean = df_working.dropna(subset=["Date", "Usage"]).tail(10)
+        # Filter out invalid rows and take last 10
+        df_clean = df_working.dropna(subset=["Date", "Usage Per Day"]).tail(10)
 
         if not df_clean.empty:
-            # Sort chronologically for the graph
             df_clean = df_clean.sort_values("Date")
             
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            
-            # Bar: Billing Days (Secondary Axis)
+            # Create Plotly Graph (Lines only)
+            fig = go.Figure()
+
+            # Line: Usage
             fig.add_trace(
-                go.Bar(x=df_clean["Date"], y=df_clean["Days"], name="Days", 
-                       marker_color='rgba(150, 150, 150, 0.2)'),
-                secondary_y=True,
+                go.Scatter(x=df_clean["Date"], y=df_clean["Usage Per Day"], name="Usage (kWh/Day)", 
+                           line=dict(color='royalblue', width=4))
             )
 
-            # Line: Usage (Primary Axis)
+            # Line: Cost
             fig.add_trace(
-                go.Scatter(x=df_clean["Date"], y=df_clean["Usage"], name="Usage (kWh/Day)", 
-                           line=dict(color='royalblue', width=4)),
-                secondary_y=False,
-            )
-
-            # Line: Cost (Primary Axis)
-            fig.add_trace(
-                go.Scatter(x=df_clean["Date"], y=df_clean["Amount"], name="Cost ($/Day)", 
-                           line=dict(color='firebrick', width=4, dash='dot')),
-                secondary_y=False,
+                go.Scatter(x=df_clean["Date"], y=df_clean["Amount Per Day"], name="Cost ($/Day)", 
+                           line=dict(color='firebrick', width=4, dash='dot'))
             )
 
             fig.update_layout(
-                title_text="Electricity Trends (Last 10 Bills)", 
+                title_text="Electricity Trends (Daily Averages)", 
                 hovermode="x unified",
-                legend=dict(orientation="h", y=1.1)
+                legend=dict(orientation="h", y=1.1),
+                xaxis_title="Billing End Date",
+                yaxis_title="Value"
             )
-            fig.update_xaxes(tickformat="%d %b %y") # Better date labels
-            fig.update_yaxes(title_text="Usage & Cost", secondary_y=False)
-            fig.update_yaxes(title_text="Days", secondary_y=True)
+            fig.update_xaxes(tickformat="%d %b %y")
 
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("No valid data found to graph. Check the Data Preview below.")
+            st.warning("No valid data found to graph. Check the Verification Table below.")
 
-        with st.expander("🔍 Data Verification (Last 10 Rows)"):
-            st.write("Ensure these columns match your expected data:")
+        # Data Verification Table (Including Days and Net Amount)
+        with st.expander("🔍 Data Verification Table"):
+            st.write("Full breakdown of the last 10 bills (Includes Days and Net Amount):")
             st.dataframe(df_clean)
 
     except Exception as e:
