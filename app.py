@@ -78,6 +78,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
     st.success("Connected: Personal Dashboard")
+    st.success("Connected: Electricity Bills")
 
 # --- DATE CALCULATIONS ---
 NOW = datetime.now()
@@ -119,43 +120,77 @@ with tab2:
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
     n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
-    # Rates and calculation logic as per original file
-    st.info("Calculator active based on shared Woolies rates.")
+    st.info("Calculator synced with Woolies rates.")
 
 # --- TAB 4: UTILITY TRACKER ---
 with tab4:
     st.header("⚡ Electricity Usage & Cost")
     
     try:
-        # Read from Sheet1 of the Utilities file
+        # Step 1: Read the full sheet (Sheet1)
         df_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
         
-        # Columns: E(4), F(5), H(7), N(13)
-        df_working = df_raw.iloc[:, [4, 5, 7, 13]].copy()
+        # Step 2: Grab Columns based on user feedback of shifting
+        # Since F(5) was taking G(6), we shift all indices back by 1
+        # Target: E(index 3), F(index 4), H(index 6), N(index 12)
+        df_working = df_raw.iloc[:, [3, 4, 6, 12]].copy()
         df_working.columns = ["Date", "Days", "Usage", "Amount"]
         
-        # Clean data: convert to numbers and dates
-        df_working["Date"] = pd.to_datetime(df_working["Date"], errors='coerce')
+        # Step 3: Advanced Date Parsing
+        # dayfirst=True handles Australian/European formats (10-Aug)
+        df_working["Date"] = pd.to_datetime(df_working["Date"], errors='coerce', dayfirst=True)
+        
+        # Step 4: Numeric Conversion
         df_working["Days"] = pd.to_numeric(df_working["Days"], errors='coerce')
         df_working["Usage"] = pd.to_numeric(df_working["Usage"], errors='coerce')
         df_working["Amount"] = pd.to_numeric(df_working["Amount"], errors='coerce')
         
-        # Drop empty rows and take last 10
-        df_clean = df_working.dropna(subset=["Date"]).tail(10)
+        # Filter out invalid rows (like headers or empty rows) and take last 10
+        df_clean = df_working.dropna(subset=["Date", "Usage"]).tail(10)
 
         if not df_clean.empty:
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Bar(x=df_clean["Date"], y=df_clean["Days"], name="Days", marker_color='rgba(150,150,150,0.2)'), secondary_y=True)
-            fig.add_trace(go.Scatter(x=df_clean["Date"], y=df_clean["Usage"], name="kWh/Day", line=dict(color='royalblue', width=4)), secondary_y=False)
-            fig.add_trace(go.Scatter(x=df_clean["Date"], y=df_clean["Amount"], name="$/Day", line=dict(color='firebrick', width=4, dash='dot')), secondary_y=False)
+            # Sort chronologically for the graph
+            df_clean = df_clean.sort_values("Date")
             
-            fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1))
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Bar: Billing Days (Secondary Axis)
+            fig.add_trace(
+                go.Bar(x=df_clean["Date"], y=df_clean["Days"], name="Days", 
+                       marker_color='rgba(150, 150, 150, 0.2)'),
+                secondary_y=True,
+            )
+
+            # Line: Usage (Primary Axis)
+            fig.add_trace(
+                go.Scatter(x=df_clean["Date"], y=df_clean["Usage"], name="Usage (kWh/Day)", 
+                           line=dict(color='royalblue', width=4)),
+                secondary_y=False,
+            )
+
+            # Line: Cost (Primary Axis)
+            fig.add_trace(
+                go.Scatter(x=df_clean["Date"], y=df_clean["Amount"], name="Cost ($/Day)", 
+                           line=dict(color='firebrick', width=4, dash='dot')),
+                secondary_y=False,
+            )
+
+            fig.update_layout(
+                title_text="Electricity Trends (Last 10 Bills)", 
+                hovermode="x unified",
+                legend=dict(orientation="h", y=1.1)
+            )
+            fig.update_xaxes(tickformat="%d %b %y") # Better date labels
+            fig.update_yaxes(title_text="Usage & Cost", secondary_y=False)
+            fig.update_yaxes(title_text="Days", secondary_y=True)
+
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Connected, but no valid data found in Sheet1. Check the preview below.")
+            st.warning("No valid data found to graph. Check the Data Preview below.")
 
-        with st.expander("🔍 Raw Data Preview"):
+        with st.expander("🔍 Data Verification (Last 10 Rows)"):
+            st.write("Ensure these columns match your expected data:")
             st.dataframe(df_clean)
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error loading utility data: {e}")
