@@ -132,25 +132,31 @@ with tab4:
         df_elec = df_elec_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_elec.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_elec["Date"] = pd.to_datetime(df_elec["Date"], errors='coerce', dayfirst=True)
-        
         for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
             df_elec[col] = pd.to_numeric(df_elec[col], errors='coerce')
         
-        # Clean and get last 10
         df_elec_clean = df_elec.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
         if not df_elec_clean.empty:
-            fig_elec = go.Figure()
-            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=3)))
-            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=3, dash='dot')))
-            fig_elec.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=0))
+            # Create dual Y-axis figure
+            fig_elec = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Line: Usage (Left Y)
+            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=4)), secondary_y=False)
+            
+            # Line: Cost (Right Y)
+            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=4, dash='dot')), secondary_y=True)
+            
+            fig_elec.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
+            fig_elec.update_yaxes(title_text="<b>Usage (kWh)</b>", secondary_y=False, color="royalblue")
+            fig_elec.update_yaxes(title_text="<b>Cost ($)</b>", secondary_y=True, color="firebrick")
+            
             st.plotly_chart(fig_elec, use_container_width=True)
         
         with st.expander("🔍 Electricity Data Table"):
-            # Formatting for table: Sort latest first and remove timestamp
             df_elec_table = df_elec_clean.sort_values("Date", ascending=False).copy()
             df_elec_table["Date"] = df_elec_table["Date"].dt.date
-            st.dataframe(df_elec_table)
+            st.dataframe(df_elec_table, use_container_width=True)
     except Exception as e:
         st.error(f"Elec Error: {e}")
 
@@ -163,25 +169,31 @@ with tab4:
         df_gas = df_gas_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_gas.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_gas["Date"] = pd.to_datetime(df_gas["Date"], errors='coerce', dayfirst=True)
-        
         for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
             df_gas[col] = pd.to_numeric(df_gas[col], errors='coerce')
         
-        # Clean and get last 10
         df_gas_clean = df_gas.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
         if not df_gas_clean.empty:
-            fig_gas = go.Figure()
-            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=3)))
-            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=3, dash='dot')))
-            fig_gas.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=0))
+            # Create dual Y-axis figure
+            fig_gas = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Line: Usage (Left Y)
+            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=4)), secondary_y=False)
+            
+            # Line: Cost (Right Y)
+            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=4, dash='dot')), secondary_y=True)
+            
+            fig_gas.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
+            fig_gas.update_yaxes(title_text="<b>Usage (MJ)</b>", secondary_y=False, color="orange")
+            fig_gas.update_yaxes(title_text="<b>Cost ($)</b>", secondary_y=True, color="darkred")
+            
             st.plotly_chart(fig_gas, use_container_width=True)
         
         with st.expander("🔍 Gas Data Table"):
-            # Formatting for table: Sort latest first and remove timestamp
             df_gas_table = df_gas_clean.sort_values("Date", ascending=False).copy()
             df_gas_table["Date"] = df_gas_table["Date"].dt.date
-            st.dataframe(df_gas_table)
+            st.dataframe(df_gas_table, use_container_width=True)
 
     except Exception as e:
         st.error(f"Gas Error: {e}")
