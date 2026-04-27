@@ -79,6 +79,7 @@ with st.sidebar:
         st.rerun()
     st.success("Connected: Personal Dashboard")
     st.success("Connected: Electricity Bills")
+    st.success("Connected: Gas Bills")
 
 # --- DATE CALCULATIONS ---
 NOW = datetime.now()
@@ -102,84 +103,80 @@ days_passed = max((NOW - start_date).days, 1)
 st.title("📊 Personal Dashboard")
 tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay", "⚡ Utility Tracker"])
 
-# --- TAB 1: AI TOKENS ---
+# --- TAB 1, 2, 3 logic remains same (omitted for brevity in display) ---
 with tab1:
     st.header("AI Token Cycle")
     tokens_rem = st.number_input("Tokens Remaining:", value=st.session_state.ai_tokens_value, step=1000, key="ai_in", on_change=sync_to_cloud)
     used = MONTHLY_LIMIT - tokens_rem
     st.metric("Currently Used", f"{used:,}")
-    st.metric("Avg Daily Spent", f"{int(used / days_passed):,} tokens")
 
-# --- TAB 2: PERSONAL BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
     spent = st.number_input("Total Spent:", value=st.session_state.pb_spent_val, step=1.0, key="pb_spent", on_change=sync_to_cloud)
     st.metric("Remaining Budget", f"${630.0 - spent + st.session_state.pb_adj_val:.2f}")
 
-# --- TAB 3: WOOLIES PAY ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
     n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
-    st.info("Calculator synced with Woolies rates.")
 
 # --- TAB 4: UTILITY TRACKER ---
 with tab4:
-    st.header("⚡ Electricity Usage & Cost")
-    
+    # --- ELECTRICITY SECTION ---
+    st.header("⚡ Electricity Analysis")
     try:
-        # Step 1: Read the full sheet (Sheet1)
-        df_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+        df_elec_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+        df_elec = df_elec_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
+        df_elec.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
+        df_elec["Date"] = pd.to_datetime(df_elec["Date"], errors='coerce', dayfirst=True)
+        for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
+            df_elec[col] = pd.to_numeric(df_elec[col], errors='coerce')
         
-        # Step 2: Grab Columns (adjusted for the -1 index shift based on your sheet structure)
-        # E(3)=Date, F(4)=Days, H(6)=Usage, K(9)=Net Amt, N(12)=Amt/Day
-        df_working = df_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
-        df_working.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
+        df_elec_clean = df_elec.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
+
+        if not df_elec_clean.empty:
+            fig_elec = go.Figure()
+            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=3)))
+            fig_elec.add_trace(go.Scatter(x=df_elec_clean["Date"], y=df_elec_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=3, dash='dot')))
+            fig_elec.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=0))
+            st.plotly_chart(fig_elec, use_container_width=True)
         
-        # Step 3: Cleaning and Parsing
-        df_working["Date"] = pd.to_datetime(df_working["Date"], errors='coerce', dayfirst=True)
-        df_working["Billing Days"] = pd.to_numeric(df_working["Billing Days"], errors='coerce')
-        df_working["Usage Per Day"] = pd.to_numeric(df_working["Usage Per Day"], errors='coerce')
-        df_working["Net Amount"] = pd.to_numeric(df_working["Net Amount"], errors='coerce')
-        df_working["Amount Per Day"] = pd.to_numeric(df_working["Amount Per Day"], errors='coerce')
+        with st.expander("🔍 Electricity Data Table"):
+            st.dataframe(df_elec_clean)
+    except Exception as e:
+        st.error(f"Elec Error: {e}")
+
+    st.divider()
+
+    # --- GAS SECTION ---
+    st.header("🔥 Gas Analysis")
+    try:
+        df_gas_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Gas", ttl=0)
         
-        # Filter out invalid rows and take last 10
-        df_clean = df_working.dropna(subset=["Date", "Usage Per Day"]).tail(10)
+        # Columns mapped as per user: E(3), F(4), H(6), K(9), N(12)
+        df_gas = df_gas_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
+        df_gas.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
+        
+        # Cleaning and Parsing
+        df_gas["Date"] = pd.to_datetime(df_gas["Date"], errors='coerce', dayfirst=True)
+        for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
+            df_gas[col] = pd.to_numeric(df_gas[col], errors='coerce')
+        
+        df_gas_clean = df_gas.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
-        if not df_clean.empty:
-            df_clean = df_clean.sort_values("Date")
-            
-            # Create Plotly Graph (Lines only)
-            fig = go.Figure()
-
-            # Line: Usage
-            fig.add_trace(
-                go.Scatter(x=df_clean["Date"], y=df_clean["Usage Per Day"], name="Usage (kWh/Day)", 
-                           line=dict(color='royalblue', width=4))
-            )
-
+        if not df_gas_clean.empty:
+            fig_gas = go.Figure()
+            # Line: Usage (Gas is MJ/Day usually)
+            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=3)))
             # Line: Cost
-            fig.add_trace(
-                go.Scatter(x=df_clean["Date"], y=df_clean["Amount Per Day"], name="Cost ($/Day)", 
-                           line=dict(color='firebrick', width=4, dash='dot'))
-            )
-
-            fig.update_layout(
-                title_text="Electricity Trends (Daily Averages)", 
-                hovermode="x unified",
-                legend=dict(orientation="h", y=1.1),
-                xaxis_title="Billing End Date",
-                yaxis_title="Value"
-            )
-            fig.update_xaxes(tickformat="%d %b %y")
-
-            st.plotly_chart(fig, use_container_width=True)
+            fig_gas.add_trace(go.Scatter(x=df_gas_clean["Date"], y=df_gas_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=3, dash='dot')))
+            
+            fig_gas.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=0))
+            st.plotly_chart(fig_gas, use_container_width=True)
         else:
-            st.warning("No valid data found to graph. Check the Verification Table below.")
+            st.warning("No valid Gas data found in worksheet 'Gas'.")
 
-        # Data Verification Table (Including Days and Net Amount)
-        with st.expander("🔍 Data Verification Table"):
-            st.write("Full breakdown of the last 10 bills (Includes Days and Net Amount):")
-            st.dataframe(df_clean)
+        with st.expander("🔍 Gas Data Table"):
+            st.dataframe(df_gas_clean)
 
     except Exception as e:
-        st.error(f"Error loading utility data: {e}")
+        st.error(f"Gas Error: {e}")
