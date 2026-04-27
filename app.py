@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import os, time
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- TIMEZONE CONFIG ---
 os.environ['TZ'] = 'Australia/Sydney'
@@ -13,13 +15,18 @@ except AttributeError:
 
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
-# --- GOOGLE SHEETS CONNECTION ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- GOOGLE SHEETS CONNECTIONS ---
+# Connection 1: Personal Dashboard (Defined in secrets)
+conn_main = st.connection("gsheets", type=GSheetsConnection)
+
+# Connection 2: Electricity Bills (Using the direct URL)
+# Replace 'YOUR_SHEET_URL_HERE' with the actual URL of your Electricity Bills Google Sheet
+ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_URL_HERE/edit#gid=0"
 
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet."""
     try:
-        df = conn.read(worksheet="Sheet1", ttl=0) 
+        df = conn_main.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
@@ -48,7 +55,7 @@ def sync_to_cloud():
             "Public Holiday Hours": st.session_state.w_p
         }
         df = pd.DataFrame([updates_dict])
-        conn.update(worksheet="Sheet1", data=df)
+        conn_main.update(worksheet="Sheet1", data=df)
         st.toast("✅ Cloud Synced!")
     except Exception as e:
         st.error(f"Sync failed: {e}")
@@ -73,8 +80,9 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
     st.success("Connected: Personal Dashboard")
+    st.success("Connected: Utility Tracker")
 
-# --- DATE CALCULATIONS ---
+# --- DATE CALCULATIONS (AI Tab) ---
 NOW = datetime.now()
 MONTHLY_LIMIT = 3000000
 RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
@@ -95,16 +103,13 @@ days_remaining_monthly = max((end_date - NOW).days, 1)
 
 # --- APP INTERFACE ---
 st.title("📊 Personal Dashboard")
-tab1, tab2, tab3 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay"])
+tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay", "⚡ Utilities"])
 
 # --- TAB 1: AI TOKENS ---
 with tab1:
     st.header("AI Token Cycle")
     st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
-    
-    tokens_rem = st.number_input("Tokens Remaining (from App):", 
-                                 value=st.session_state.ai_tokens_value, 
-                                 step=1000, key="ai_in", on_change=sync_to_cloud)
+    tokens_rem = st.number_input("Tokens Remaining (from App):", value=st.session_state.ai_tokens_value, step=1000, key="ai_in", on_change=sync_to_cloud)
     
     used_to_date = MONTHLY_LIMIT - tokens_rem
     avg_daily = used_to_date / days_passed
@@ -117,84 +122,91 @@ with tab1:
     c2.metric("Daily Budget", f"{int(daily_budget):,} tokens", delta=f"{int(daily_budget - avg_daily):,} vs avg")
     c3.metric("Projected Total", f"{int(projected):,} / 3.0M")
 
-    if projected > MONTHLY_LIMIT:
-        st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected - MONTHLY_LIMIT):,} tokens.")
-    else:
-        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens.")
-
 # --- TAB 2: PERSONAL BUDGET ---
 with tab2:
     st.header("Weekly Budget Tracker")
-    st.info("Week starts **Thursday**.")
-    
-    st.metric("Weekly Budget", "$630.00")
-    
-    spent = st.number_input("Total Spent so far (including today):", 
-                           value=st.session_state.pb_spent_val, 
-                           step=1.0, key="pb_spent", on_change=sync_to_cloud)
-    adj = st.number_input("Adjusted Amount (AUD):", 
-                         value=st.session_state.pb_adj_val, 
-                         step=1.0, key="pb_adj", on_change=sync_to_cloud)
-    
-    today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
+    spent = st.number_input("Total Spent so far:", value=st.session_state.pb_spent_val, step=1.0, key="pb_spent", on_change=sync_to_cloud)
+    adj = st.number_input("Adjusted Amount (AUD):", value=st.session_state.pb_adj_val, step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
     current_weekday = NOW.weekday() 
     days_since_thurs = (current_weekday - 3) % 7
-
-    if current_weekday == 2:  # Wednesday
-        days_left_weekly = 0 if today_is_over else 1
-    else:
-        days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
+    days_left_weekly = (7 - days_since_thurs)
     
-    weekly_limit = 630.0  
-    remaining_funds = weekly_limit - spent + adj
-    net_spent = spent - adj
-    daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
+    remaining_funds = 630.0 - spent + adj
+    daily_allowance = remaining_funds / max(days_left_weekly, 1)
 
-    st.divider()
     col_a, col_b, col_c = st.columns(3)
-    
-    # Show days remaining in small font under budget
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
-    col_a.caption(f"🗓️ {days_left_weekly} days remaining")
-    
-    if days_left_weekly > 0:
-        col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
-    else:
-        col_b.metric("Allowed Daily Spend", "Last Day")
-
-    col_c.metric("Net Spent", f"${net_spent:.2f}")
+    col_b.metric("Allowed Daily Spend", f"${daily_allowance:.2f}")
+    col_c.metric("Net Spent", f"${spent - adj:.2f}")
 
 # --- TAB 3: WOOLIES PAY ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("Rates include Casual Loading and Shift Penalties. Tax @28%")
+    n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
+    l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
+    s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+    p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
 
-    row1_col1, row1_col2 = st.columns(2)
-    row2_col1, row2_col2 = st.columns(2)
-
-    with row1_col1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
-    with row1_col2:
-        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
-    with row2_col1:
-        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
-    with row2_col2:
-        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
-
-    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY, NET_GOAL = 26.9797, 6.7449, 6.7449, 13.4899, 6.25, 520.00
-    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25
-    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50
-    rate_ph = BASE_ORD * 2.5
-
-    total_gross = (n_h * rate_std) + ((l_h + s_h) * rate_pen) + (p_h * rate_ph)
+    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY = 26.9797, 6.7449, 6.7449, 13.4899, 6.25
+    total_gross = (n_h * (BASE_ORD+CAS_LOAD+SHIFT_25)) + ((l_h + s_h) * (BASE_ORD+CAS_LOAD+SHIFT_50)) + (p_h * (BASE_ORD*2.5))
     est_net = (total_gross * 0.72) + LAUNDRY
 
     st.divider()
     m1, m2, m3 = st.columns(3)
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
     m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
+    m3.metric("Goal Status", f"${est_net - 520:.2f}", delta=f"${est_net - 520:.2f}")
+
+# --- TAB 4: UTILITIES ---
+with tab4:
+    st.header("⚡ Electricity Bill Analysis")
     
-    # Goal status with dynamic coloring (Positive = Green, Negative = Red)
-    goal_delta = est_net - NET_GOAL
-    m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
+    try:
+        # Fetching data from the separate "Electricity Bills" file
+        df_elec_raw = conn_main.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+        
+        # Selecting specific columns: E (4), F (5), H (7), N (13) - Indexing starts at 0
+        # Columns: End Date, No. of Days, Usage/Day, Amt/Day
+        df_elec = df_elec_raw.iloc[:, [4, 5, 7, 13]].copy()
+        df_elec.columns = ["End Date", "Billing Days", "Usage Per Day", "Amount Per Day"]
+        
+        # Convert Date and grab last 10
+        df_elec["End Date"] = pd.to_datetime(df_elec["End Date"])
+        df_elec = df_elec.sort_values("End Date").tail(10)
+
+        # Plotly Figure with Secondary Y-Axis
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Bar Chart: Billing Days (Secondary Axis)
+        fig.add_trace(
+            go.Bar(x=df_elec["End Date"], y=df_elec["Billing Days"], name="Days in Bill", 
+                   marker_color='rgba(200, 200, 200, 0.3)'),
+            secondary_y=True,
+        )
+
+        # Line Chart: Usage Per Day
+        fig.add_trace(
+            go.Scatter(x=df_elec["End Date"], y=df_elec["Usage Per Day"], name="Usage (kWh/Day)", 
+                       line=dict(color='royalblue', width=4)),
+            secondary_y=False,
+        )
+
+        # Line Chart: Amount Per Day
+        fig.add_trace(
+            go.Scatter(x=df_elec["End Date"], y=df_elec["Amount Per Day"], name="Cost ($/Day)", 
+                       line=dict(color='firebrick', width=4, dash='dot')),
+            secondary_y=False,
+        )
+
+        fig.update_layout(title_text="Last 10 Electricity Bills (Daily Averages)", hovermode="x unified")
+        fig.update_yaxes(title_text="<b>Usage / Cost</b>", secondary_y=False)
+        fig.update_yaxes(title_text="<b>Days in Cycle</b>", secondary_y=True)
+
+        st.plotly_chart(fig, use_container_width=True)
+        
+        with st.expander("View Raw Data"):
+            st.dataframe(df_elec)
+
+    except Exception as e:
+        st.error(f"Could not load Electricity data. Check URL and Sheet Permissions. Error: {e}")
