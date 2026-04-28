@@ -19,7 +19,7 @@ st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="�
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- CONFIGURATION ---
-ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit?gid=1978947189#gid=1978947189"
+ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit#gid=1978947189"
 
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet."""
@@ -54,9 +54,11 @@ def sync_to_cloud():
         }
         df = pd.DataFrame([updates_dict])
         conn.update(worksheet="Sheet1", data=df)
+        st.cache_data.clear()  # This ensures the next 'read' gets the new data
         st.toast("✅ Cloud Synced!")
     except Exception as e:
         st.error(f"Sync failed: {e}")
+
 
 # --- INITIALIZE SESSION STATE ---
 if "initialized" not in st.session_state:
@@ -74,12 +76,11 @@ if "initialized" not in st.session_state:
 with st.sidebar:
     st.header("🔄 Connection")
     if st.button("Manual Refresh"):
+        st.cache_data.clear()  # CRITICAL: Clears the background data cache
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
-    st.success("Connected: Personal Dashboard")
-    st.success("Connected: Electricity Bills")
-    st.success("Connected: Gas Bills")
+
 
 # --- DATE CALCULATIONS ---
 NOW = datetime.now()
@@ -210,8 +211,12 @@ with tab3:
 with tab4:
     # --- ELECTRICITY SECTION ---
     st.header("⚡ Electricity Analysis")
-    try:
-        df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+    # Inside Tab 4...
+try:
+    # Explicitly passing the 'spreadsheet' URL here is the key fix
+    df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+    # ... keep all your existing df_e processing and plotly code here ...
+
         # Columns: E(3), F(4), H(6), K(9), N(12)
         df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
