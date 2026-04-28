@@ -208,19 +208,16 @@ with tab3:
     m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
 
 # --- TAB 4: UTILITY TRACKER ---
+# --- TAB 4: UTILITY TRACKER ---
 with tab4:
-    # --- ELECTRICITY SECTION ---
     st.header("⚡ Electricity Analysis")
-    # Inside Tab 4...
-try:
-    # Explicitly passing the 'spreadsheet' URL here is the key fix
-    df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
-    # ... keep all your existing df_e processing and plotly code here ...
-
-        # Columns: E(3), F(4), H(6), K(9), N(12)
+    try:
+        # Fetching electricity data
+        df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
         df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_e["Date"] = pd.to_datetime(df_e["Date"], errors='coerce', dayfirst=True)
+        
         for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
             df_e[col] = pd.to_numeric(df_e[col], errors='coerce')
         
@@ -231,29 +228,22 @@ try:
             fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=4)), secondary_y=False)
             fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=4, dash='dot')), secondary_y=True)
             fig_e.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
-            fig_e.update_yaxes(title_text="Usage (kWh)", secondary_y=False, color="royalblue")
-            fig_e.update_yaxes(title_text="Cost ($)", secondary_y=True, color="firebrick")
             st.plotly_chart(fig_e, use_container_width=True)
-        
-        with st.expander("🔍 Electricity Data Table"):
-            df_e_table = df_e_clean.sort_values("Date", ascending=False).copy()
-            df_e_table["Date"] = df_e_table["Date"].dt.date
-            st.dataframe(df_e_table, use_container_width=True)
     except Exception as e:
         st.error(f"Elec Error: {e}")
 
     st.divider()
-
-    # --- GAS SECTION ---
     st.header("🔥 Gas Analysis")
     try:
+        # Fetching gas data
         df_g_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Gas", ttl=0)
         df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_g.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_g["Date"] = pd.to_datetime(df_g["Date"], errors='coerce', dayfirst=True)
+        
         for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
             df_g[col] = pd.to_numeric(df_g[col], errors='coerce')
-        
+            
         df_g_clean = df_g.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
         if not df_g_clean.empty:
@@ -261,13 +251,6 @@ try:
             fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=4)), secondary_y=False)
             fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=4, dash='dot')), secondary_y=True)
             fig_g.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
-            fig_g.update_yaxes(title_text="Usage (MJ)", secondary_y=False, color="orange")
-            fig_g.update_yaxes(title_text="Cost ($)", secondary_y=True, color="darkred")
             st.plotly_chart(fig_g, use_container_width=True)
-        
-        with st.expander("🔍 Gas Data Table"):
-            df_g_table = df_g_clean.sort_values("Date", ascending=False).copy()
-            df_g_table["Date"] = df_g_table["Date"].dt.date
-            st.dataframe(df_g_table, use_container_width=True)
     except Exception as e:
         st.error(f"Gas Error: {e}")
