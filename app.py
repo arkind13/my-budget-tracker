@@ -223,15 +223,15 @@ with tab1:
         # Clean up column names for presentation
         df_display.columns = ["Model Permaslug", "Total Tokens", "Total Amount", "Amount per 3M Tokens"]
         
-        # Use Streamlit's native column configuration to format display numbers while preserving numeric sorting
+# Use Streamlit's native column configuration to format display numbers while preserving numeric sorting
         st.dataframe(
             df_display, 
             use_container_width=True, 
             hide_index=True,
             column_config={
-                "Total Tokens": st.column_config.NumberColumn(format="%d"),
-                "Total Amount": st.column_config.NumberColumn(format="$%.4f"),
-                "Amount per 3M Tokens": st.column_config.NumberColumn(format="$%.2f")
+                "Total Tokens": st.column_config.NumberColumn(format="%,d"),
+                "Total Amount": st.column_config.NumberColumn(format="$,.4f"),
+                "Amount per 3M Tokens": st.column_config.NumberColumn(format="$,.2f")
             }
         )
         
