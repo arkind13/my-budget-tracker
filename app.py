@@ -207,26 +207,33 @@ with tab1:
         st.write("### 📋 Model Usage Breakdown")
         
         # Group and compile by model for standard clean reporting
-        df_grouped = df_filtered.groupby('model_permaslug').agg(
+        df_display = df_filtered.groupby('model_permaslug').agg(
             Total_Tokens=('total_tokens', 'sum'),
             Total_Amount=('cost_total', 'sum')
         ).reset_index()
         
-        # Calculate key target dynamic metric sorting column
-        df_grouped['Amount_per_3M_Tokens'] = df_grouped.apply(
+        # Calculate key target dynamic metric sorting column (Keep as numeric float!)
+        df_display['Amount_per_3M_Tokens'] = df_display.apply(
             lambda r: (r['Total_Amount'] / (r['Total_Tokens'] / 3000000)) if r['Total_Tokens'] > 0 else 0.0, axis=1
         )
         
-        # Set default sort rule target requirement
-        df_grouped = df_grouped.sort_values(by="Amount_per_3M_Tokens", ascending=True)
+        # Set default sort rule target requirement (Numerically)
+        df_display = df_display.sort_values(by="Amount_per_3M_Tokens", ascending=True)
         
-        # Format table columns visually cleanly
-        df_display = df_grouped.copy()
-        df_display['Total_Tokens'] = df_display['Total_Tokens'].apply(lambda x: f"{x:,}")
-        df_display['Total_Amount'] = df_display['Total_Amount'].apply(lambda x: f"${x:,.4f}")
-        df_display['Amount_per_3M_Tokens'] = df_display['Amount_per_3M_Tokens'].apply(lambda x: f"${x:,.2f}")
+        # Clean up column names for presentation
+        df_display.columns = ["Model Permaslug", "Total Tokens", "Total Amount", "Amount per 3M Tokens"]
         
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        # Use Streamlit's native column configuration to format display numbers while preserving numeric sorting
+        st.dataframe(
+            df_display, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Total Tokens": st.column_config.NumberColumn(format="%d"),
+                "Total Amount": st.column_config.NumberColumn(format="$%.4f"),
+                "Amount per 3M Tokens": st.column_config.NumberColumn(format="$%.2f")
+            }
+        )
         
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
