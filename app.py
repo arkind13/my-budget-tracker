@@ -22,7 +22,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit#gid=1978947189"
 
 def load_gsheet_data():
-    """Fetch data from the 'Personal Dashboard' sheet."""
+    """Fetch data from the 'Personal Dashboard' sheet summary row."""
     try:
         df = conn.read(worksheet="Sheet1", ttl=0) 
         if not df.empty:
@@ -31,7 +31,6 @@ def load_gsheet_data():
         st.sidebar.error(f"Connection Error: {e}")
     
     return {
-        "AI Remaining Token": 2368000,
         "Total Spent So Far": 180.0,
         "Adjusted Amount": 0.0,
         "Standard Hours": 17.5,
@@ -40,11 +39,22 @@ def load_gsheet_data():
         "Public Holiday Hours": 0.0
     }
 
+def load_openrouter_data():
+    """Fetch raw OpenRouter historical data from the cloud sheet."""
+    try:
+        df = conn.read(worksheet="OpenRouter_Data", ttl=0)
+        if df.empty:
+            return pd.DataFrame()
+        df['created_at'] = pd.to_datetime(df['created_at'])
+        return df
+    except Exception:
+        # Returns empty dataframe if worksheet doesn't exist yet
+        return pd.DataFrame()
+
 def sync_to_cloud():
-    """Pushes current UI values to Google Sheets."""
+    """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
         updates_dict = {
-            "AI Remaining Token": st.session_state.ai_in,
             "Total Spent So Far": st.session_state.pb_spent,
             "Adjusted Amount": st.session_state.pb_adj,
             "Standard Hours": st.session_state.w_n,
@@ -54,7 +64,7 @@ def sync_to_cloud():
         }
         df = pd.DataFrame([updates_dict])
         conn.update(worksheet="Sheet1", data=df)
-        st.cache_data.clear()  # This ensures the next 'read' gets the new data
+        st.cache_data.clear()
         st.toast("✅ Cloud Synced!")
     except Exception as e:
         st.error(f"Sync failed: {e}")
@@ -63,7 +73,6 @@ def sync_to_cloud():
 # --- INITIALIZE SESSION STATE ---
 if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
-    st.session_state.ai_tokens_value = int(gs_data.get("AI Remaining Token", 2368000))
     st.session_state.pb_spent_val = float(gs_data.get("Total Spent So Far", 180.0))
     st.session_state.pb_adj_val = float(gs_data.get("Adjusted Amount", 0.0))
     st.session_state.w_n_val = float(gs_data.get("Standard Hours", 17.5))
@@ -76,7 +85,7 @@ if "initialized" not in st.session_state:
 with st.sidebar:
     st.header("🔄 Connection")
     if st.button("Manual Refresh"):
-        st.cache_data.clear()  # CRITICAL: Clears the background data cache
+        st.cache_data.clear()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -84,51 +93,129 @@ with st.sidebar:
 
 # --- DATE CALCULATIONS ---
 NOW = datetime.now()
-MONTHLY_LIMIT = 3000000
-RESET_DAY, RESET_HOUR, RESET_MIN = 25, 17, 20
-
-def cycle_dates(ref):
-    start = ref.replace(day=RESET_DAY, hour=RESET_HOUR, minute=RESET_MIN, second=0, microsecond=0)
-    if ref < start:
-        prev = (start.replace(day=1) - timedelta(days=1))
-        start = prev.replace(day=RESET_DAY, hour=RESET_HOUR, minute=RESET_MIN, second=0, microsecond=0)
-    m = (start.month % 12) + 1
-    y = start.year + (1 if m == 1 else 0)
-    end = start.replace(year=y, month=m)
-    return start, end
-
-start_date, end_date = cycle_dates(NOW)
-days_passed = max((NOW - start_date).days, 1)
-days_remaining_monthly = max((end_date - NOW).days, 1)
+ONE_YEAR_AGO = NOW - timedelta(days=365)
 
 # --- APP INTERFACE ---
 st.title("📊 Personal Dashboard")
-tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Tokens", "💰 Personal Budget", "🛒 Woolies Pay", "⚡ Utility Tracker"])
+tab1, tab2, tab3, tab4 = st.tabs(["🤖 OpenRouter Data", "💰 Personal Budget", "🛒 Woolies Pay", "⚡ Utility Tracker"])
 
-# --- TAB 1: AI TOKENS ---
+# --- TAB 1: OPENROUTER DATA ---
 with tab1:
-    st.header("AI Token Cycle")
-    st.caption(f"Cycle: {start_date.strftime('%d %b')} → {end_date.strftime('%d %b')}")
+    st.header("OpenRouter Token & Cost Analytics")
     
-    tokens_rem = st.number_input("Tokens Remaining (from App):", 
-                                 value=st.session_state.ai_tokens_value, 
-                                 step=1000, key="ai_in", on_change=sync_to_cloud)
+    # Load historical database
+    df_or = load_openrouter_data()
     
-    used_to_date = MONTHLY_LIMIT - tokens_rem
-    avg_daily = used_to_date / days_passed
-    daily_budget = tokens_rem / days_remaining_monthly
-    projected = used_to_date + (avg_daily * days_remaining_monthly)
+    # --- FILE UPLOADER & PROCESSING PIPELINE ---
+    uploaded_file = st.file_uploader("Upload OpenRouter Activity CSV", type=["csv"])
+    
+    if uploaded_file is not None:
+        try:
+            df_new = pd.read_csv(uploaded_file)
+            df_new['created_at'] = pd.to_datetime(df_new['created_at'])
+            
+            # Combine historical data and new data if history exists
+            if not df_or.empty:
+                df_combined = pd.concat([df_or, df_new], ignore_index=True)
+            else:
+                df_combined = df_new
+                
+            # De-duplicate entries based on unique OpenRouter generation_id
+            df_combined = df_combined.drop_duplicates(subset=["generation_id"], keep="first")
+            
+            # Apply rolling 1-year retention threshold (Pruning old data)
+            df_combined = df_combined[df_combined['created_at'] >= ONE_YEAR_AGO]
+            
+            # Save parsed clean tracking sheet back to Google Sheets
+            conn.update(worksheet="OpenRouter_Data", data=df_combined)
+            st.cache_data.clear()
+            st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
+            df_or = df_combined  # Update view state instantly
+        except Exception as e:
+            st.error(f"Error handling file upload processing pipeline: {e}")
 
-    st.write(f"### Currently Used: {used_to_date:,}")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Avg Daily Spent", f"{int(avg_daily):,} tokens")
-    c2.metric("Daily Budget", f"{int(daily_budget):,} tokens", delta=f"{int(daily_budget - avg_daily):,} vs avg")
-    c3.metric("Projected Total", f"{int(projected):,} / 3.0M")
+    st.divider()
 
-    if projected > MONTHLY_LIMIT:
-        st.error(f"⚠️ Over Limit: Projected to exceed by {int(projected - MONTHLY_LIMIT):,} tokens.")
+    if not df_or.empty:
+        # Precompute target metrics columns
+        df_or['total_tokens'] = df_or['tokens_prompt'] + df_or['tokens_completion']
+        df_or['year'] = df_or['created_at'].dt.year
+        df_or['month'] = df_or['created_at'].dt.strftime('%b')
+        
+        # Display data update date ceiling header
+        max_date = df_or['created_at'].max().strftime('%d-%b-%Y')
+        st.subheader(f"📅 Data updated till: {max_date}")
+        
+        # --- FILTERS PANEL ---
+        st.write("### 🔍 Filters")
+        f_col1, f_col2, f_col3 = st.columns(3)
+        
+        with f_col1:
+            model_query = st.text_input("Filter by Model Name (e.g., deepseek):", value="")
+        with f_col2:
+            years_avail = sorted(df_or['year'].unique(), reverse=True)
+            selected_years = st.multiselect("Filter by Year:", options=years_avail, default=years_avail)
+        with f_col3:
+            months_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            months_avail = [m for m in months_order if m in df_or['month'].unique()]
+            selected_months = st.multiselect("Filter by Month:", options=months_avail, default=months_avail)
+            
+        # Apply filters seamlessly
+        df_filtered = df_or.copy()
+        if model_query:
+            df_filtered = df_filtered[df_filtered['model_permaslug'].str.contains(model_query, case=False, na=False)]
+        if selected_years:
+            df_filtered = df_filtered[df_filtered['year'].isin(selected_years)]
+        if selected_months:
+            df_filtered = df_filtered[df_filtered['month'].isin(selected_months)]
+            
+        # --- CALCULATION LOGIC & SUMMARY CARDS ---
+        def calculate_metrics(dataframe):
+            t_tokens = dataframe['total_tokens'].sum()
+            t_amount = dataframe['cost_total'].sum()
+            amt_per_3m = (t_amount / (t_tokens / 3000000)) if t_tokens > 0 else 0.0
+            return t_tokens, t_amount, amt_per_3m
+
+        # Compute Unfiltered / Filtered values
+        unfilt_tok, unfilt_amt, unfilt_3m = calculate_metrics(df_or)
+        filt_tok, filt_amt, filt_3m = calculate_metrics(df_filtered)
+        
+        # UI Metrics Blocks Display
+        st.write("### 📈 Key Summary Metrics")
+        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1.metric("Total Tokens (Filtered / Global)", f"{filt_tok:,}", delta=f"Global: {unfilt_tok:,}", delta_color="off")
+        m_col2.metric("Total Cost (Filtered / Global)", f"${filt_amt:,.2f}", delta=f"Global: ${unfilt_amt:,.2f}", delta_color="off")
+        m_col3.metric("Cost per 3M Tokens (Filtered)", f"${filt_3m:,.2f}", delta=f"Global: ${unfilt_3m:,.2f}", delta_color="off")
+        
+        st.divider()
+        
+        # --- INTERACTIVE DATAFRAME VIEW ---
+        st.write("### 📋 Model Usage Breakdown")
+        
+        # Group and compile by model for standard clean reporting
+        df_grouped = df_filtered.groupby('model_permaslug').agg(
+            Total_Tokens=('total_tokens', 'sum'),
+            Total_Amount=('cost_total', 'sum')
+        ).reset_index()
+        
+        # Calculate key target dynamic metric sorting column
+        df_grouped['Amount_per_3M_Tokens'] = df_grouped.apply(
+            lambda r: (r['Total_Amount'] / (r['Total_Tokens'] / 3000000)) if r['Total_Tokens'] > 0 else 0.0, axis=1
+        )
+        
+        # Set default sort rule target requirement
+        df_grouped = df_grouped.sort_values(by="Amount_per_3M_Tokens", ascending=True)
+        
+        # Format table columns visually cleanly
+        df_display = df_grouped.copy()
+        df_display['Total_Tokens'] = df_display['Total_Tokens'].apply(lambda x: f"{x:,}")
+        df_display['Total_Amount'] = df_display['Total_Amount'].apply(lambda x: f"${x:,.4f}")
+        df_display['Amount_per_3M_Tokens'] = df_display['Amount_per_3M_Tokens'].apply(lambda x: f"${x:,.2f}")
+        
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        
     else:
-        st.success(f"✅ On Track: Buffer of {int(MONTHLY_LIMIT - projected):,} tokens.")
+        st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
 
 # --- TAB 2: PERSONAL BUDGET ---
 with tab2:
@@ -162,7 +249,6 @@ with tab2:
     st.divider()
     col_a, col_b, col_c = st.columns(3)
     
-    # Show days remaining in small font under budget
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
     col_a.caption(f"🗓️ {days_left_weekly} days remaining")
     
@@ -203,16 +289,13 @@ with tab3:
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
     m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
     
-    # Goal status with dynamic coloring (Positive = Green, Negative = Red)
     goal_delta = est_net - NET_GOAL
     m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
 
 # --- TAB 4: UTILITY TRACKER ---
-# --- TAB 4: UTILITY TRACKER ---
 with tab4:
     st.header("⚡ Electricity Analysis")
     try:
-        # Fetching electricity data
         df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
         df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
@@ -235,7 +318,6 @@ with tab4:
     st.divider()
     st.header("🔥 Gas Analysis")
     try:
-        # Fetching gas data
         df_g_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Gas", ttl=0)
         df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_g.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
