@@ -43,7 +43,7 @@ def load_openrouter_data():
     """Fetch raw OpenRouter historical data from the cloud sheet."""
     try:
         df = conn.read(worksheet="OpenRouter_Data", ttl=0)
-        if df.empty:
+        if df is None or df.empty:
             return pd.DataFrame()
         df['created_at'] = pd.to_datetime(df['created_at'])
         return df
@@ -126,8 +126,22 @@ with tab1:
             # Apply rolling 1-year retention threshold (Pruning old data)
             df_combined = df_combined[df_combined['created_at'] >= ONE_YEAR_AGO]
             
+            # Create a string-serializable copy for Google Sheets transport
+            df_upload = df_combined.copy()
+            df_upload['created_at'] = df_upload['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Handle empty/NaN text fields cleanly for cloud storage payload
+            for col in df_upload.columns:
+                if df_upload[col].dtype == 'object':
+                    df_upload[col] = df_upload[col].fillna('')
+            
             # Save parsed clean tracking sheet back to Google Sheets
-            conn.update(worksheet="OpenRouter_Data", data=df_combined)
+            try:
+                conn.update(worksheet="OpenRouter_Data", data=df_upload)
+            except Exception:
+                # Automatic fallback: creates the worksheet tab if it doesn't exist yet
+                conn.create(worksheet="OpenRouter_Data", data=df_upload)
+                
             st.cache_data.clear()
             st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
             df_or = df_combined  # Update view state instantly
