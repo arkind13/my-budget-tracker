@@ -167,7 +167,6 @@ with tab1:
         with f_col1:
             model_query = st.text_input("Include Model (e.g., deepseek):", value="")
         with f_col2:
-            # Default string combining your 4 requested model exclusions using RegEx OR operator (|)
             default_exclusions = "bytedance/seedance-2.0-fast-20260414|google/veo-3.1-lite-20260331|google/gemini-2.5-flash-image|recraft/recraft-v4.1-pro-vector-20260514"
             exclude_query = st.text_input("Exclude Model:", value=default_exclusions)
         with f_col3:
@@ -183,7 +182,6 @@ with tab1:
         if model_query:
             df_filtered = df_filtered[df_filtered['model_permaslug'].str.contains(model_query, case=False, na=False)]
         if exclude_query:
-            # Filters out any rows matching the models specified in the text input box
             df_filtered = df_filtered[~df_filtered['model_permaslug'].str.contains(exclude_query, case=False, na=False)]
         if selected_years:
             df_filtered = df_filtered[df_filtered['year'].isin(selected_years)]
@@ -230,7 +228,7 @@ with tab1:
         # Clean up column names for presentation
         df_display.columns = ["Model Permaslug", "Total Tokens", "Total Amount", "Amount per 3M Tokens"]
         
-        # Streamlit column config format rules without colliding with percentage formatting mechanics
+        # Streamlit column config format rules
         st.dataframe(
             df_display, 
             use_container_width=True, 
@@ -242,26 +240,46 @@ with tab1:
             }
         )
 
-        # --- MODEL PERCENTAGE VISUALIZATION ---
+        # --- MODEL PERCENTAGE VISUALIZATION WITH 80% PARETO GROUPING ---
         if not df_display.empty:
             st.write("### 🍩 Model Volume Proportion (%)")
             
-            # Using a Plotly Donut Chart to show % of models used based on token volume
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=df_display["Model Permaslug"], 
-                values=df_display["Total Tokens"],
-                hole=0.4, 
-                textinfo='label+percent',
-                insidetextorientation='radial'
-            )])
+            # Sort descending by volume to parse the top-used models first
+            df_chart = df_display.sort_values(by="Total Tokens", ascending=False).copy()
+            total_tokens_sum = df_chart["Total Tokens"].sum()
             
-            fig_pie.update_layout(
-                margin=dict(t=20, b=20, l=20, r=20),
-                showlegend=True,
-                legend=dict(orientation="h", y=-0.1)
-            )
-            
-            st.plotly_chart(fig_pie, use_container_width=True)
+            if total_tokens_sum > 0:
+                # Compute running cumulative contribution percentage
+                df_chart['cumsum_pct'] = df_chart['Total Tokens'].cumsum() / total_tokens_sum
+                
+                # Determine which models stay individual vs grouped into 'Others'
+                # Shift cumulative sum series by 1 so the model that crosses 80% is preserved individually
+                df_chart['prev_cumsum_pct'] = df_chart['cumsum_pct'].shift(1, fill_value=0.0)
+                
+                # Group row items if the preceding rows already accounted for 80%+ of volume
+                df_chart['Chart_Label'] = df_chart.apply(
+                    lambda row: row['Model Permaslug'] if row['prev_cumsum_pct'] < 0.80 else 'Others', axis=1
+                )
+                
+                # Aggregate total tokens grouped by the new Chart_Label series
+                df_pie_data = df_chart.groupby('Chart_Label')['Total Tokens'].sum().reset_index()
+                
+                # Render Donut Chart
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=df_pie_data["Chart_Label"], 
+                    values=df_pie_data["Total Tokens"],
+                    hole=0.4, 
+                    textinfo='label+percent',
+                    insidetextorientation='radial'
+                )])
+                
+                fig_pie.update_layout(
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    showlegend=True,
+                    legend=dict(orientation="h", y=-0.1)
+                )
+                
+                st.plotly_chart(fig_pie, use_container_width=True)
         
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
