@@ -194,6 +194,13 @@ with tab1:
         unfilt_tok, unfilt_amt, unfilt_3m = calculate_metrics(df_or)
         filt_tok, filt_amt, filt_3m = calculate_metrics(df_filtered)
         
+        # UI Metrics Blocks Display
+        st.write("### 📈 Key Summary Metrics")
+        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1.metric("Total Tokens (Filtered / Global)", f"{filt_tok:,}", delta=f"Global: {unfilt_tok:,}", delta_color="off")
+        m_col2.metric("Total Cost (Filtered / Global)", f"${filt_amt:,.2f}", delta=f"Global: ${unfilt_amt:,.2f}", delta_color="off")
+        m_col3.metric("Cost per 3M Tokens (Filtered)", f"${filt_3m:,.2f}", delta=f"Global: ${unfilt_3m:,.2f}", delta_color="off")
+        
         st.divider()
         
         # --- INTERACTIVE DATAFRAME VIEW ---
