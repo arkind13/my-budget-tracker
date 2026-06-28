@@ -162,14 +162,18 @@ with tab1:
         
         # --- FILTERS PANEL ---
         st.write("### 🔍 Filters")
-        f_col1, f_col2, f_col3 = st.columns(3)
+        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         
         with f_col1:
-            model_query = st.text_input("Filter by Model Name (e.g., deepseek):", value="")
+            model_query = st.text_input("Include Model (e.g., deepseek):", value="")
         with f_col2:
+            # Default string combining your 4 requested model exclusions using RegEx OR operator (|)
+            default_exclusions = "bytedance/seedance-2.0-fast-20260414|google/veo-3.1-lite-20260331|google/gemini-2.5-flash-image|recraft/recraft-v4.1-pro-vector-20260514"
+            exclude_query = st.text_input("Exclude Model:", value=default_exclusions)
+        with f_col3:
             years_avail = sorted(df_or['year'].unique(), reverse=True)
             selected_years = st.multiselect("Filter by Year:", options=years_avail, default=years_avail)
-        with f_col3:
+        with f_col4:
             months_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             months_avail = [m for m in months_order if m in df_or['month'].unique()]
             selected_months = st.multiselect("Filter by Month:", options=months_avail, default=months_avail)
@@ -178,6 +182,9 @@ with tab1:
         df_filtered = df_or.copy()
         if model_query:
             df_filtered = df_filtered[df_filtered['model_permaslug'].str.contains(model_query, case=False, na=False)]
+        if exclude_query:
+            # Filters out any rows matching the models specified in the text input box
+            df_filtered = df_filtered[~df_filtered['model_permaslug'].str.contains(exclude_query, case=False, na=False)]
         if selected_years:
             df_filtered = df_filtered[df_filtered['year'].isin(selected_years)]
         if selected_months:
@@ -234,6 +241,27 @@ with tab1:
                 "Amount per 3M Tokens": st.column_config.NumberColumn(format="$%.2f")
             }
         )
+
+        # --- MODEL PERCENTAGE VISUALIZATION ---
+        if not df_display.empty:
+            st.write("### 🍩 Model Volume Proportion (%)")
+            
+            # Using a Plotly Donut Chart to show % of models used based on token volume
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=df_display["Model Permaslug"], 
+                values=df_display["Total Tokens"],
+                hole=0.4, 
+                textinfo='label+percent',
+                insidetextorientation='radial'
+            )])
+            
+            fig_pie.update_layout(
+                margin=dict(t=20, b=20, l=20, r=20),
+                showlegend=True,
+                legend=dict(orientation="h", y=-0.1)
+            )
+            
+            st.plotly_chart(fig_pie, use_container_width=True)
         
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
