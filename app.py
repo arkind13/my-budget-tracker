@@ -329,7 +329,7 @@ with tab2:
 # --- TAB 3: WOOLIES PAY ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("Rates include Casual Loading and Shift Penalties. Tax @28%")
+    st.info("Rates include FY27 Pay Increase (4.75%), Casual Loading and Shift Penalties. Tax @28%")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
@@ -343,7 +343,15 @@ with tab3:
     with row2_col2:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
 
-    BASE_ORD, CAS_LOAD, SHIFT_25, SHIFT_50, LAUNDRY, NET_GOAL = 26.9797, 6.7449, 6.7449, 13.4899, 6.25, 520.00
+    # FY27 Rate Factor (4.75% increase)
+    FY27_INCREASE = 1.0475
+    
+    BASE_ORD = 26.9797 * FY27_INCREASE
+    CAS_LOAD = 6.7449 * FY27_INCREASE
+    SHIFT_25 = 6.7449 * FY27_INCREASE
+    SHIFT_50 = 13.4899 * FY27_INCREASE
+    LAUNDRY, NET_GOAL = 6.25, 520.00
+    
     rate_std = BASE_ORD + CAS_LOAD + SHIFT_25
     rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50
     rate_ph = BASE_ORD * 2.5
@@ -370,7 +378,7 @@ with tab4:
         
         for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
             df_e[col] = pd.to_numeric(df_e[col], errors='coerce')
-        
+            
         df_e_clean = df_e.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
         if not df_e_clean.empty:
