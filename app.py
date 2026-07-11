@@ -6,7 +6,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 
 # --- TIMEZONE CONFIG ---
 os.environ['TZ'] = 'Australia/Sydney'
@@ -19,7 +18,8 @@ except AttributeError:
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
 # --- GOOGLE SHEETS CONNECTIONS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# Using built-in Streamlit connection (no external package needed for basic usage)
+conn = st.connection("gsheets")
 
 # --- CONFIGURATION ---
 ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit#gid=1978947189"
