@@ -1,10 +1,12 @@
-import streamlit as st
+import os
+import time
 from datetime import datetime, timedelta
-from streamlit_gsheets import GSheetsConnection
+
 import pandas as pd
-import os, time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 # --- TIMEZONE CONFIG ---
 os.environ['TZ'] = 'Australia/Sydney'
@@ -13,6 +15,7 @@ try:
 except AttributeError:
     pass
 
+# --- PAGE CONFIG (MUST BE FIRST) ---
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
 # --- GOOGLE SHEETS CONNECTIONS ---
@@ -73,12 +76,12 @@ def sync_to_cloud():
 # --- INITIALIZE SESSION STATE ---
 if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
-    st.session_state.pb_spent_val = float(gs_data.get("Total Spent So Far", 180.0))
-    st.session_state.pb_adj_val = float(gs_data.get("Adjusted Amount", 0.0))
-    st.session_state.w_n_val = float(gs_data.get("Standard Hours", 17.5))
-    st.session_state.w_s_val = float(gs_data.get("Sunday Hours", 5.5))
-    st.session_state.w_l_val = float(gs_data.get("Late Night Hours", 1.5))
-    st.session_state.w_p_val = float(gs_data.get("Public Holiday Hours", 0.0))
+    st.session_state.pb_spent = float(gs_data.get("Total Spent So Far", 180.0))
+    st.session_state.pb_adj = float(gs_data.get("Adjusted Amount", 0.0))
+    st.session_state.w_n = float(gs_data.get("Standard Hours", 17.5))
+    st.session_state.w_s = float(gs_data.get("Sunday Hours", 5.5))
+    st.session_state.w_l = float(gs_data.get("Late Night Hours", 1.5))
+    st.session_state.w_p = float(gs_data.get("Public Holiday Hours", 0.0))
     st.session_state.initialized = True
 
 # --- SIDEBAR ---
@@ -292,10 +295,10 @@ with tab2:
     st.metric("Weekly Budget", "$630.00")
     
     spent = st.number_input("Total Spent so far (including today):", 
-                           value=st.session_state.pb_spent_val, 
+                           value=st.session_state.pb_spent, 
                            step=1.0, key="pb_spent", on_change=sync_to_cloud)
     adj = st.number_input("Adjusted Amount (AUD):", 
-                         value=st.session_state.pb_adj_val, 
+                         value=st.session_state.pb_adj, 
                          step=1.0, key="pb_adj", on_change=sync_to_cloud)
     
     today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
@@ -335,13 +338,13 @@ with tab3:
     row2_col1, row2_col2 = st.columns(2)
 
     with row1_col1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n_val, step=0.5, key="w_n", on_change=sync_to_cloud)
+        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=sync_to_cloud)
     with row1_col2:
-        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l_val, step=0.5, key="w_l", on_change=sync_to_cloud)
+        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=sync_to_cloud)
     with row2_col1:
-        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s_val, step=0.5, key="w_s", on_change=sync_to_cloud)
+        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s, step=0.5, key="w_s", on_change=sync_to_cloud)
     with row2_col2:
-        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p_val, step=0.5, key="w_p", on_change=sync_to_cloud)
+        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p, step=0.5, key="w_p", on_change=sync_to_cloud)
 
     # FY27 Rate Factor (4.75% increase)
     FY27_INCREASE = 1.0475
