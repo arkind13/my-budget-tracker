@@ -1,5 +1,5 @@
-streamlit>=1.40.0
-pandas>=2.2.2
-st-gsheets-connection>=0.2.1
+streamlit
+pandas
+st-gsheets-connection
 plotly
-pyarrow>=17.0.0
+pyarrow
