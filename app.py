@@ -22,12 +22,13 @@ st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="�
 conn = st.connection("gsheets")
 
 # --- CONFIGURATION ---
-ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit#gid=1978947189"
+DASHBOARD_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Y1au4X4XE41-wXNMplVtJ0bN0OCh3yODvjMwnlI_kUg/edit"
+ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit"
 
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet summary row."""
     try:
-        df = conn.read(worksheet="Sheet1", ttl=0) 
+        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", ttl=0) 
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
@@ -45,7 +46,7 @@ def load_gsheet_data():
 def load_openrouter_data():
     """Fetch raw OpenRouter historical data from the cloud sheet."""
     try:
-        df = conn.read(worksheet="OpenRouter_Data", ttl=0)
+        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", ttl=0)
         if df is None or df.empty:
             return pd.DataFrame()
         df['created_at'] = pd.to_datetime(df['created_at'])
@@ -66,7 +67,7 @@ def sync_to_cloud():
             "Public Holiday Hours": st.session_state.w_p
         }
         df = pd.DataFrame([updates_dict])
-        conn.update(worksheet="Sheet1", data=df)
+        conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", data=df)
         st.cache_data.clear()
         st.toast("✅ Cloud Synced!")
     except Exception as e:
@@ -140,10 +141,10 @@ with tab1:
             
             # Save parsed clean tracking sheet back to Google Sheets
             try:
-                conn.update(worksheet="OpenRouter_Data", data=df_upload)
+                conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
             except Exception:
                 # Automatic fallback: creates the worksheet tab if it doesn't exist yet
-                conn.create(worksheet="OpenRouter_Data", data=df_upload)
+                conn.create(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
                 
             st.cache_data.clear()
             st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
