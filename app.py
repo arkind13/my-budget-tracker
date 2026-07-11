@@ -1,11 +1,14 @@
 import os
 import time
 from datetime import datetime, timedelta
+import json
 
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- TIMEZONE CONFIG ---
 os.environ['TZ'] = 'Australia/Sydney'
@@ -18,22 +21,42 @@ except AttributeError:
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
 # --- GOOGLE SHEETS CONNECTIONS ---
-# Connection is automatically initialized from secrets.toml [connections.gsheets]
-conn = st.connection("gsheets")
+# Authenticate using service account from secrets
+@st.cache_resource
+def get_gspread_client():
+    """Initialize gspread client using service account credentials from secrets."""
+    try:
+        creds_dict = st.secrets["connections"]["gsheets"]
+        scope = ["https://www.googleapis.com/auth/spreadsheets", 
+                 "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Failed to authenticate with Google Sheets: {e}")
+        return None
+
+client = get_gspread_client()
 
 # --- CONFIGURATION ---
-DASHBOARD_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Y1au4X4XE41-wXNMplVtJ0bN0OCh3yODvjMwnlI_kUg/edit"
-ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit"
+DASHBOARD_SHEET_ID = "1Y1au4X4XE41-wXNMplVtJ0bN0OCh3yODvjMwnlI_kUg"
+ELEC_SHEET_ID = "10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE"
 
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet summary row."""
     try:
-        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", ttl=0) 
-        if not df.empty:
-            return df.iloc[0].to_dict()
+        if client is None:
+            return get_default_data()
+        sheet = client.open_by_key(DASHBOARD_SHEET_ID).worksheet("Sheet1")
+        data = sheet.get_all_records()
+        if data:
+            return data[0]
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
     
+    return get_default_data()
+
+def get_default_data():
+    """Return default values if connection fails."""
     return {
         "Total Spent So Far": 180.0,
         "Adjusted Amount": 0.0,
@@ -46,11 +69,15 @@ def load_gsheet_data():
 def load_openrouter_data():
     """Fetch raw OpenRouter historical data from the cloud sheet."""
     try:
-        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", ttl=0)
-        if df is None or df.empty:
+        if client is None:
             return pd.DataFrame()
-        df['created_at'] = pd.to_datetime(df['created_at'])
-        return df
+        sheet = client.open_by_key(DASHBOARD_SHEET_ID).worksheet("OpenRouter_Data")
+        data = sheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            df['created_at'] = pd.to_datetime(df['created_at'])
+            return df
+        return pd.DataFrame()
     except Exception:
         # Returns empty dataframe if worksheet doesn't exist yet
         return pd.DataFrame()
@@ -58,6 +85,10 @@ def load_openrouter_data():
 def sync_to_cloud():
     """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
+        if client is None:
+            st.error("Not connected to Google Sheets")
+            return
+        
         updates_dict = {
             "Total Spent So Far": st.session_state.pb_spent,
             "Adjusted Amount": st.session_state.pb_adj,
@@ -66,8 +97,16 @@ def sync_to_cloud():
             "Late Night Hours": st.session_state.w_l,
             "Public Holiday Hours": st.session_state.w_p
         }
-        df = pd.DataFrame([updates_dict])
-        conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", data=df)
+        
+        sheet = client.open_by_key(DASHBOARD_SHEET_ID).worksheet("Sheet1")
+        # Clear and update
+        sheet.clear()
+        # Add headers
+        headers = list(updates_dict.keys())
+        values = list(updates_dict.values())
+        sheet.append_row(headers)
+        sheet.append_row(values)
+        
         st.cache_data.clear()
         st.toast("✅ Cloud Synced!")
     except Exception as e:
@@ -90,6 +129,7 @@ with st.sidebar:
     st.header("🔄 Connection")
     if st.button("Manual Refresh"):
         st.cache_data.clear()
+        st.cache_resource.clear()
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -141,10 +181,24 @@ with tab1:
             
             # Save parsed clean tracking sheet back to Google Sheets
             try:
-                conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
+                if client is not None:
+                    sheet = client.open_by_key(DASHBOARD_SHEET_ID).worksheet("OpenRouter_Data")
+                    sheet.clear()
+                    # Add headers
+                    sheet.append_row(list(df_upload.columns))
+                    # Add data rows
+                    for _, row in df_upload.iterrows():
+                        sheet.append_row(row.tolist())
             except Exception:
                 # Automatic fallback: creates the worksheet tab if it doesn't exist yet
-                conn.create(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
+                try:
+                    if client is not None:
+                        ws = client.open_by_key(DASHBOARD_SHEET_ID).add_worksheet("OpenRouter_Data", rows=1000, cols=len(df_upload.columns))
+                        ws.append_row(list(df_upload.columns))
+                        for _, row in df_upload.iterrows():
+                            ws.append_row(row.tolist())
+                except Exception as e:
+                    st.error(f"Could not create worksheet: {e}")
                 
             st.cache_data.clear()
             st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
@@ -375,43 +429,51 @@ with tab3:
 with tab4:
     st.header("⚡ Electricity Analysis")
     try:
-        df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
-        df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
-        df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
-        df_e["Date"] = pd.to_datetime(df_e["Date"], errors='coerce', dayfirst=True)
-        
-        for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
-            df_e[col] = pd.to_numeric(df_e[col], errors='coerce')
-            
-        df_e_clean = df_e.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
+        if client is not None:
+            sheet = client.open_by_key(ELEC_SHEET_ID).worksheet("Sheet1")
+            data = sheet.get_all_records()
+            if data:
+                df_e_raw = pd.DataFrame(data)
+                df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
+                df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
+                df_e["Date"] = pd.to_datetime(df_e["Date"], errors='coerce', dayfirst=True)
+                
+                for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
+                    df_e[col] = pd.to_numeric(df_e[col], errors='coerce')
+                    
+                df_e_clean = df_e.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
-        if not df_e_clean.empty:
-            fig_e = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=4)), secondary_y=False)
-            fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=4, dash='dot')), secondary_y=True)
-            fig_e.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
-            st.plotly_chart(fig_e, use_container_width=True)
+                if not df_e_clean.empty:
+                    fig_e = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Usage Per Day"], name="Usage (kWh/Day)", line=dict(color='royalblue', width=4)), secondary_y=False)
+                    fig_e.add_trace(go.Scatter(x=df_e_clean["Date"], y=df_e_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='firebrick', width=4, dash='dot')), secondary_y=True)
+                    fig_e.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
+                    st.plotly_chart(fig_e, use_container_width=True)
     except Exception as e:
         st.error(f"Elec Error: {e}")
 
     st.divider()
     st.header("🔥 Gas Analysis")
     try:
-        df_g_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Gas", ttl=0)
-        df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
-        df_g.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
-        df_g["Date"] = pd.to_datetime(df_g["Date"], errors='coerce', dayfirst=True)
-        
-        for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
-            df_g[col] = pd.to_numeric(df_g[col], errors='coerce')
-            
-        df_g_clean = df_g.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
+        if client is not None:
+            sheet = client.open_by_key(ELEC_SHEET_ID).worksheet("Gas")
+            data = sheet.get_all_records()
+            if data:
+                df_g_raw = pd.DataFrame(data)
+                df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
+                df_g.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
+                df_g["Date"] = pd.to_datetime(df_g["Date"], errors='coerce', dayfirst=True)
+                
+                for col in ["Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]:
+                    df_g[col] = pd.to_numeric(df_g[col], errors='coerce')
+                    
+                df_g_clean = df_g.dropna(subset=["Date", "Usage Per Day"]).sort_values("Date").tail(10)
 
-        if not df_g_clean.empty:
-            fig_g = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=4)), secondary_y=False)
-            fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=4, dash='dot')), secondary_y=True)
-            fig_g.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
-            st.plotly_chart(fig_g, use_container_width=True)
+                if not df_g_clean.empty:
+                    fig_g = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Usage Per Day"], name="Usage (MJ/Day)", line=dict(color='orange', width=4)), secondary_y=False)
+                    fig_g.add_trace(go.Scatter(x=df_g_clean["Date"], y=df_g_clean["Amount Per Day"], name="Cost ($/Day)", line=dict(color='darkred', width=4, dash='dot')), secondary_y=True)
+                    fig_g.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=30))
+                    st.plotly_chart(fig_g, use_container_width=True)
     except Exception as e:
         st.error(f"Gas Error: {e}")
