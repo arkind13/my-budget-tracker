@@ -18,8 +18,8 @@ except AttributeError:
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
 # --- GOOGLE SHEETS CONNECTIONS ---
-# Using streamlit-gsheets package
-conn = st.connection("gsheets", type="gsheets")
+# Connection is automatically initialized from secrets.toml [connections.gsheets]
+conn = st.connection("gsheets")
 
 # --- CONFIGURATION ---
 ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit#gid=1978947189"
