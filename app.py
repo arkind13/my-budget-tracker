@@ -6,6 +6,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import gspread
+from gspread_dataframe import get_as_dataframe, set_with_dataframe
+from google.oauth2.service_account import Credentials
 
 # --- TIMEZONE CONFIG ---
 os.environ['TZ'] = 'Australia/Sydney'
@@ -17,10 +20,6 @@ except AttributeError:
 # --- PAGE CONFIG (MUST BE FIRST) ---
 st.set_page_config(page_title="Personal Dashboard", layout="wide", page_icon="📊")
 
-# --- GOOGLE SHEETS CONNECTIONS ---
-# Connection is automatically initialized from secrets.toml [connections.gsheets]
-conn = st.connection("gsheets")
-
 # --- CONFIGURATION ---
 DASHBOARD_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Y1au4X4XE41-wXNMplVtJ0bN0OCh3yODvjMwnlI_kUg/edit"
 ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedhRnueXTC9cS_Cfx8JACuSE/edit"
@@ -29,10 +28,65 @@ ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedh
 NUMERIC_COLS = ['tokens_prompt', 'tokens_completion', 'cost_total']
 
 
+# --- GSPREAD CONNECTION HELPER ---
+@st.cache_resource
+def get_gspread_client():
+    """Create a gspread client using service account credentials from Streamlit secrets."""
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    creds_dict = dict(st.secrets["connections"]["gsheets"])
+    # Remove non-credential keys that may be present in secrets.toml
+    creds_dict.pop("spreadsheet", None)
+    creds_dict.pop("worksheet", None)
+    
+    credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(credentials)
+
+
+def gsheet_read(spreadsheet_url: str, worksheet: str, ttl: int = 0) -> pd.DataFrame:
+    """Read a Google Sheet worksheet into a DataFrame with caching."""
+    @st.cache_data(ttl=ttl, show_spinner=False)
+    def _read_cached(_client_id: str, spreadsheet_url: str, worksheet: str):
+        client = get_gspread_client()
+        ss = client.open_by_url(spreadsheet_url)
+        ws = ss.worksheet(worksheet)
+        df = get_as_dataframe(ws, evaluate_formulas=True)
+        return df
+    
+    # Use a cache key based on the spreadsheet URL + worksheet name
+    # The _client_id param forces cache to be invalidated when client changes
+    return _read_cached("v1", spreadsheet_url, worksheet)
+
+
+def gsheet_update(spreadsheet_url: str, worksheet: str, data: pd.DataFrame):
+    """Update (overwrite) a Google Sheet worksheet with DataFrame data."""
+    client = get_gspread_client()
+    ss = client.open_by_url(spreadsheet_url)
+    try:
+        ws = ss.worksheet(worksheet)
+        ws.clear()
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=worksheet, rows=data.shape[0], cols=data.shape[1])
+    set_with_dataframe(ws, data)
+    st.cache_data.clear()
+
+
+def gsheet_create_worksheet(spreadsheet_url: str, worksheet: str, data: pd.DataFrame):
+    """Create a new worksheet in an existing spreadsheet."""
+    client = get_gspread_client()
+    ss = client.open_by_url(spreadsheet_url)
+    ws = ss.add_worksheet(title=worksheet, rows=data.shape[0], cols=data.shape[1])
+    set_with_dataframe(ws, data)
+    st.cache_data.clear()
+
+
+# --- DATA LOADING FUNCTIONS ---
 def load_gsheet_data():
     """Fetch data from the 'Personal Dashboard' sheet summary row."""
     try:
-        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", ttl=0)
+        df = gsheet_read(DASHBOARD_SHEET_URL, "Sheet1", ttl=0)
         if not df.empty:
             return df.iloc[0].to_dict()
     except Exception as e:
@@ -51,16 +105,17 @@ def load_gsheet_data():
 def load_openrouter_data():
     """Fetch raw OpenRouter historical data from the cloud sheet."""
     try:
-        df = conn.read(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", ttl=0)
+        df = gsheet_read(DASHBOARD_SHEET_URL, "OpenRouter_Data", ttl=0)
         if df is None or df.empty:
             return pd.DataFrame()
+
+        # Drop completely empty rows (gspread-dataframe often returns trailing empty rows)
+        df = df.dropna(how='all')
 
         # Parse datetime column
         df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
 
-        # ✅ FIX: Convert numeric columns from string to proper numeric dtype
-        # Google Sheets connection often loads numbers as strings,
-        # especially when empty cells or mixed types are present.
+        # ✅ Convert numeric columns from string to proper numeric dtype
         for col in NUMERIC_COLS:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -83,8 +138,7 @@ def sync_to_cloud():
             "Public Holiday Hours": st.session_state.w_p
         }
         df = pd.DataFrame([updates_dict])
-        conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="Sheet1", data=df)
-        st.cache_data.clear()
+        gsheet_update(DASHBOARD_SHEET_URL, "Sheet1", df)
         st.toast("✅ Cloud Synced!")
     except Exception as e:
         st.error(f"Sync failed: {e}")
@@ -134,7 +188,7 @@ with tab1:
             df_new = pd.read_csv(uploaded_file)
             df_new['created_at'] = pd.to_datetime(df_new['created_at'])
 
-            # ✅ FIX: Convert numeric columns in the uploaded CSV too
+            # ✅ Convert numeric columns in the uploaded CSV too
             for col in NUMERIC_COLS:
                 if col in df_new.columns:
                     df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
@@ -155,23 +209,19 @@ with tab1:
             df_upload = df_combined.copy()
             df_upload['created_at'] = df_upload['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # ✅ FIX: Handle empty/NaN text fields cleanly for cloud storage payload
-            # Only fillna('') on non-numeric text columns — NOT numeric columns.
-            # Numeric columns should stay numeric so Google Sheets stores them
-            # as numbers, not strings.
+            # ✅ Handle empty/NaN text fields cleanly for cloud storage payload
             for col in df_upload.columns:
                 if col in NUMERIC_COLS:
-                    # Ensure numeric columns remain numeric before upload
                     df_upload[col] = pd.to_numeric(df_upload[col], errors='coerce')
                 elif df_upload[col].dtype == 'object':
                     df_upload[col] = df_upload[col].fillna('')
 
             # Save parsed clean tracking sheet back to Google Sheets
             try:
-                conn.update(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
+                gsheet_update(DASHBOARD_SHEET_URL, "OpenRouter_Data", df_upload)
             except Exception:
                 # Automatic fallback: creates the worksheet tab if it doesn't exist yet
-                conn.create(spreadsheet=DASHBOARD_SHEET_URL, worksheet="OpenRouter_Data", data=df_upload)
+                gsheet_create_worksheet(DASHBOARD_SHEET_URL, "OpenRouter_Data", df_upload)
 
             st.cache_data.clear()
             st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
@@ -221,8 +271,6 @@ with tab1:
 
         # --- CALCULATION LOGIC & SUMMARY CARDS ---
         def calculate_metrics(dataframe):
-            # ✅ FIX: Defensive numeric coercion to prevent TypeError if
-            # columns are still string-typed for any reason
             t_tokens = pd.to_numeric(dataframe['total_tokens'], errors='coerce').sum()
             t_amount = pd.to_numeric(dataframe['cost_total'], errors='coerce').sum()
             amt_per_3m = (t_amount / (t_tokens / 3000000)) if t_tokens > 0 else 0.0
@@ -244,24 +292,18 @@ with tab1:
         # --- INTERACTIVE DATAFRAME VIEW ---
         st.write("### 📋 Model Usage Breakdown")
 
-        # Group and compile by model for standard clean reporting
         df_display = df_filtered.groupby('model_permaslug').agg(
             Total_Tokens=('total_tokens', 'sum'),
             Total_Amount=('cost_total', 'sum')
         ).reset_index()
 
-        # Calculate key target dynamic metric sorting column (Keep as numeric float!)
         df_display['Amount_per_3M_Tokens'] = df_display.apply(
             lambda r: (r['Total_Amount'] / (r['Total_Tokens'] / 3000000)) if r['Total_Tokens'] > 0 else 0.0, axis=1
         )
 
-        # Set default sort rule target requirement (Numerically)
         df_display = df_display.sort_values(by="Amount_per_3M_Tokens", ascending=True)
-
-        # Clean up column names for presentation
         df_display.columns = ["Model Permaslug", "Total Tokens", "Total Amount", "Amount per 3M Tokens"]
 
-        # Streamlit column config format rules
         st.dataframe(
             df_display,
             use_container_width=True,
@@ -277,27 +319,17 @@ with tab1:
         if not df_display.empty:
             st.write("### 🍩 Model Volume Proportion (%)")
 
-            # Sort descending by volume to parse the top-used models first
             df_chart = df_display.sort_values(by="Total Tokens", ascending=False).copy()
             total_tokens_sum = df_chart["Total Tokens"].sum()
 
             if total_tokens_sum > 0:
-                # Compute running cumulative contribution percentage
                 df_chart['cumsum_pct'] = df_chart['Total Tokens'].cumsum() / total_tokens_sum
-
-                # Determine which models stay individual vs grouped into 'Others'
-                # Shift cumulative sum series by 1 so the model that crosses 80% is preserved individually
                 df_chart['prev_cumsum_pct'] = df_chart['cumsum_pct'].shift(1, fill_value=0.0)
-
-                # Group row items if the preceding rows already accounted for 80%+ of volume
                 df_chart['Chart_Label'] = df_chart.apply(
                     lambda row: row['Model Permaslug'] if row['prev_cumsum_pct'] < 0.80 else 'Others', axis=1
                 )
-
-                # Aggregate total tokens grouped by the new Chart_Label series
                 df_pie_data = df_chart.groupby('Chart_Label')['Total Tokens'].sum().reset_index()
 
-                # Render Donut Chart
                 fig_pie = go.Figure(data=[go.Pie(
                     labels=df_pie_data["Chart_Label"],
                     values=df_pie_data["Total Tokens"],
@@ -376,7 +408,6 @@ with tab3:
     with row2_col2:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p, step=0.5, key="w_p", on_change=sync_to_cloud)
 
-    # FY27 Rate Factor (4.75% increase)
     FY27_INCREASE = 1.0475
 
     BASE_ORD = 26.9797 * FY27_INCREASE
@@ -404,7 +435,7 @@ with tab3:
 with tab4:
     st.header("⚡ Electricity Analysis")
     try:
-        df_e_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Sheet1", ttl=0)
+        df_e_raw = gsheet_read(ELEC_SHEET_URL, "Sheet1", ttl=0)
         df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_e.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_e["Date"] = pd.to_datetime(df_e["Date"], errors='coerce', dayfirst=True)
@@ -426,7 +457,7 @@ with tab4:
     st.divider()
     st.header("🔥 Gas Analysis")
     try:
-        df_g_raw = conn.read(spreadsheet=ELEC_SHEET_URL, worksheet="Gas", ttl=0)
+        df_g_raw = gsheet_read(ELEC_SHEET_URL, "Gas", ttl=0)
         df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
         df_g.columns = ["Date", "Billing Days", "Usage Per Day", "Net Amount", "Amount Per Day"]
         df_g["Date"] = pd.to_datetime(df_g["Date"], errors='coerce', dayfirst=True)
