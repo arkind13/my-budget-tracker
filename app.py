@@ -170,9 +170,18 @@ def on_paid_amount_change():
 
 
 # --- INITIALIZE SESSION STATE ---
+# --- INITIALIZE SESSION STATE (upgrade-safe — handles old cached sessions) ---
+# Always ensure new credit-limit keys exist, even if "initialized" is from old code
+if "start_limit" not in st.session_state:
+    gs_data = load_gsheet_data()
+    st.session_state.start_limit = float(gs_data.get("Start Available Limit", 1000.0))
+    st.session_state.current_limit = float(gs_data.get("Current Available Limit", 850.0))
+    st.session_state.paid_amount = float(gs_data.get("Paid Amount", 0.0))
+    st.session_state.payment_timestamp = gs_data.get("Payment Timestamp", "")
+
 if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
-    # New credit-limit fields
+    # New credit-limit fields (also set here to cover fresh first-run)
     st.session_state.start_limit = float(gs_data.get("Start Available Limit", 1000.0))
     st.session_state.current_limit = float(gs_data.get("Current Available Limit", 850.0))
     st.session_state.paid_amount = float(gs_data.get("Paid Amount", 0.0))
