@@ -134,9 +134,16 @@ def load_openrouter_data():
 def sync_to_cloud():
     """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
-        # Compute current values for payload
         raw_spent = st.session_state.start_limit - st.session_state.current_limit
         true_net_spent = raw_spent + st.session_state.paid_amount
+
+        # Defensive: grab pb_spent with a fallback
+        pb_spent = st.session_state.get("pb_spent", 0.0)
+        pb_adj = st.session_state.get("pb_adj", 0.0)
+        w_n = st.session_state.get("w_n", 0.0)
+        w_s = st.session_state.get("w_s", 0.0)
+        w_l = st.session_state.get("w_l", 0.0)
+        w_p = st.session_state.get("w_p", 0.0)
 
         updates_dict = {
             "Start Available Limit": st.session_state.start_limit,
@@ -144,12 +151,12 @@ def sync_to_cloud():
             "Paid Amount": st.session_state.paid_amount,
             "Payment Timestamp": st.session_state.payment_timestamp,
             "True Net Spent": true_net_spent,
-            "Total Spent So Far": st.session_state.pb_spent,
-            "Adjusted Amount": st.session_state.pb_adj,
-            "Standard Hours": st.session_state.w_n,
-            "Sunday Hours": st.session_state.w_s,
-            "Late Night Hours": st.session_state.w_l,
-            "Public Holiday Hours": st.session_state.w_p,
+            "Total Spent So Far": pb_spent,
+            "Adjusted Amount": pb_adj,
+            "Standard Hours": w_n,
+            "Sunday Hours": w_s,
+            "Late Night Hours": w_l,
+            "Public Holiday Hours": w_p,
         }
         df = pd.DataFrame([updates_dict])
         gsheet_update(DASHBOARD_SHEET_URL, "Sheet1", df)
@@ -169,30 +176,36 @@ def on_paid_amount_change():
     sync_to_cloud()
 
 
-# --- INITIALIZE SESSION STATE ---
-# --- INITIALIZE SESSION STATE (upgrade-safe — handles old cached sessions) ---
-# Always ensure new credit-limit keys exist, even if "initialized" is from old code
-if "start_limit" not in st.session_state:
-    gs_data = load_gsheet_data()
-    st.session_state.start_limit = float(gs_data.get("Start Available Limit", 1000.0))
-    st.session_state.current_limit = float(gs_data.get("Current Available Limit", 850.0))
-    st.session_state.paid_amount = float(gs_data.get("Paid Amount", 0.0))
-    st.session_state.payment_timestamp = gs_data.get("Payment Timestamp", "")
+# --- INITIALIZE SESSION STATE (upgrade-safe) ---
+# Use a single block that always checks each key individually
+_gs_data = load_gsheet_data()
 
+# Credit-limit fields
+if "start_limit" not in st.session_state:
+    st.session_state.start_limit = float(_gs_data.get("Start Available Limit", 1000.0))
+if "current_limit" not in st.session_state:
+    st.session_state.current_limit = float(_gs_data.get("Current Available Limit", 850.0))
+if "paid_amount" not in st.session_state:
+    st.session_state.paid_amount = float(_gs_data.get("Paid Amount", 0.0))
+if "payment_timestamp" not in st.session_state:
+    st.session_state.payment_timestamp = _gs_data.get("Payment Timestamp", "")
+
+# Legacy fields (still needed for backward compat and sync_to_cloud)
+if "pb_spent" not in st.session_state:
+    st.session_state.pb_spent = float(_gs_data.get("Total Spent So Far", 180.0))
+if "pb_adj" not in st.session_state:
+    st.session_state.pb_adj = float(_gs_data.get("Adjusted Amount", 0.0))
+if "w_n" not in st.session_state:
+    st.session_state.w_n = float(_gs_data.get("Standard Hours", 17.5))
+if "w_s" not in st.session_state:
+    st.session_state.w_s = float(_gs_data.get("Sunday Hours", 5.5))
+if "w_l" not in st.session_state:
+    st.session_state.w_l = float(_gs_data.get("Late Night Hours", 1.5))
+if "w_p" not in st.session_state:
+    st.session_state.w_p = float(_gs_data.get("Public Holiday Hours", 0.0))
+
+# Mark as initialized
 if "initialized" not in st.session_state:
-    gs_data = load_gsheet_data()
-    # New credit-limit fields (also set here to cover fresh first-run)
-    st.session_state.start_limit = float(gs_data.get("Start Available Limit", 1000.0))
-    st.session_state.current_limit = float(gs_data.get("Current Available Limit", 850.0))
-    st.session_state.paid_amount = float(gs_data.get("Paid Amount", 0.0))
-    st.session_state.payment_timestamp = gs_data.get("Payment Timestamp", "")
-    # Existing fields (kept for backward compat)
-    st.session_state.pb_spent = float(gs_data.get("Total Spent So Far", 180.0))
-    st.session_state.pb_adj = float(gs_data.get("Adjusted Amount", 0.0))
-    st.session_state.w_n = float(gs_data.get("Standard Hours", 17.5))
-    st.session_state.w_s = float(gs_data.get("Sunday Hours", 5.5))
-    st.session_state.w_l = float(gs_data.get("Late Night Hours", 1.5))
-    st.session_state.w_p = float(gs_data.get("Public Holiday Hours", 0.0))
     st.session_state.initialized = True
 
 # --- SIDEBAR ---
