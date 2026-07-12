@@ -135,7 +135,8 @@ def sync_to_cloud():
     """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
         raw_spent = st.session_state.start_limit - st.session_state.current_limit
-        true_net_spent = raw_spent + st.session_state.paid_amount
+        pb_adj = st.session_state.get("pb_adj", 0.0)
+        true_net_spent = raw_spent + paid_amount - pb_adj        # ← adjusted amount subtracted
 
         # Defensive: grab pb_spent with a fallback
         pb_spent = st.session_state.get("pb_spent", 0.0)
@@ -483,10 +484,11 @@ with tab2:
     # --- DETAIL BREAKDOWN (collapsible for power users) ---
     with st.expander("📐 Calculation Breakdown"):
         st.write(f"**Raw Spent** = Start Available ({start_limit}) – Current Available ({current_limit}) = **${raw_spent:.2f}**")
-        st.write(f"**True Net Spent** = Raw Spent ({raw_spent}) + Paid Amount ({paid_amount}) = **${true_net_spent:.2f}**")
-        st.write(f"**Remaining** = Weekly Budget ({weekly_limit}) – True Net Spent ({true_net_spent}) = **${remaining_funds:.2f}**")
+        st.write(f"**Adjusted Amount** = **${adj:.2f}** (subtracted)")
+        st.write(f"**True Net Spent** = Raw Spent ({raw_spent:.2f}) + Paid Amount ({paid_amount:.2f}) – Adjusted Amount ({adj:.2f}) = **${true_net_spent:.2f}**")
+        st.write(f"**Remaining Budget** = Weekly Budget ({weekly_limit}) – True Net Spent ({true_net_spent:.2f}) = **${remaining_funds:.2f}**")
         if days_left_weekly > 0:
-            st.write(f"**Daily Allowance** = Remaining ({remaining_funds:.2f}) ÷ Days Left ({days_left_weekly}) = **${daily_allowance_weekly:.2f}**")
+            st.write(f"**Allowed Daily Spend** = Remaining ({remaining_funds:.2f}) ÷ Days Left ({days_left_weekly}) = **${daily_allowance_weekly:.2f}**")
 
 # --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
