@@ -56,7 +56,6 @@ def gsheet_read(spreadsheet_url: str, worksheet: str, ttl: int = 0) -> pd.DataFr
         return df
     
     # Use a cache key based on the spreadsheet URL + worksheet name
-    # The _client_id param forces cache to be invalidated when client changes
     return _read_cached("v1", spreadsheet_url, worksheet)
 
 
@@ -92,8 +91,14 @@ def load_gsheet_data():
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
 
+    # Fallback defaults — now using new credit-limit fields
     return {
-        "Total Spent So Far": 180.0,
+        "Start Available Limit": 1000.0,
+        "Current Available Limit": 850.0,
+        "Paid Amount": 0.0,
+        "Payment Timestamp": "",
+        "True Net Spent": 150.0,
+        "Total Spent So Far": 180.0,   # kept for backward compat
         "Adjusted Amount": 0.0,
         "Standard Hours": 17.5,
         "Sunday Hours": 5.5,
@@ -129,13 +134,22 @@ def load_openrouter_data():
 def sync_to_cloud():
     """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
+        # Compute current values for payload
+        raw_spent = st.session_state.start_limit - st.session_state.current_limit
+        true_net_spent = raw_spent + st.session_state.paid_amount
+
         updates_dict = {
+            "Start Available Limit": st.session_state.start_limit,
+            "Current Available Limit": st.session_state.current_limit,
+            "Paid Amount": st.session_state.paid_amount,
+            "Payment Timestamp": st.session_state.payment_timestamp,
+            "True Net Spent": true_net_spent,
             "Total Spent So Far": st.session_state.pb_spent,
             "Adjusted Amount": st.session_state.pb_adj,
             "Standard Hours": st.session_state.w_n,
             "Sunday Hours": st.session_state.w_s,
             "Late Night Hours": st.session_state.w_l,
-            "Public Holiday Hours": st.session_state.w_p
+            "Public Holiday Hours": st.session_state.w_p,
         }
         df = pd.DataFrame([updates_dict])
         gsheet_update(DASHBOARD_SHEET_URL, "Sheet1", df)
@@ -144,9 +158,26 @@ def sync_to_cloud():
         st.error(f"Sync failed: {e}")
 
 
+# --- PAYMENT TIMESTAMPING CALLBACK ---
+def on_paid_amount_change():
+    """If Paid Amount > 0, capture current AEST/AEDT timestamp."""
+    paid = st.session_state.paid_amount
+    if paid > 0:
+        st.session_state.payment_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+    else:
+        st.session_state.payment_timestamp = ""
+    sync_to_cloud()
+
+
 # --- INITIALIZE SESSION STATE ---
 if "initialized" not in st.session_state:
     gs_data = load_gsheet_data()
+    # New credit-limit fields
+    st.session_state.start_limit = float(gs_data.get("Start Available Limit", 1000.0))
+    st.session_state.current_limit = float(gs_data.get("Current Available Limit", 850.0))
+    st.session_state.paid_amount = float(gs_data.get("Paid Amount", 0.0))
+    st.session_state.payment_timestamp = gs_data.get("Payment Timestamp", "")
+    # Existing fields (kept for backward compat)
     st.session_state.pb_spent = float(gs_data.get("Total Spent So Far", 180.0))
     st.session_state.pb_adj = float(gs_data.get("Adjusted Amount", 0.0))
     st.session_state.w_n = float(gs_data.get("Standard Hours", 17.5))
@@ -349,22 +380,56 @@ with tab1:
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
 
-# --- TAB 2: PERSONAL BUDGET ---
+
+# =============================================================================
+# TAB 2: PERSONAL BUDGET — REFACTORED WITH CREDIT-LIMIT LOGIC
+# =============================================================================
 with tab2:
     st.header("Weekly Budget Tracker")
-    st.info("Week starts **Thursday**.")
+    st.info("Week starts **Thursday**. Using credit-card available-limit logic to bypass pending / cleared entry errors.")
 
     st.metric("Weekly Budget", "$630.00")
 
-    spent = st.number_input("Total Spent so far (including today):",
-                           value=st.session_state.pb_spent,
-                           step=1.0, key="pb_spent", on_change=sync_to_cloud)
-    adj = st.number_input("Adjusted Amount (AUD):",
-                         value=st.session_state.pb_adj,
-                         step=1.0, key="pb_adj", on_change=sync_to_cloud)
+    # --- NEW 3-FIELD INPUTS (replace old "Total Spent So Far") ---
+    start_limit = st.number_input(
+        "Weekly Start Available Limit (AUD):",
+        value=st.session_state.start_limit,
+        step=10.0,
+        key="start_limit",
+        on_change=sync_to_cloud
+    )
+    current_limit = st.number_input(
+        "Current Available Limit (AUD):",
+        value=st.session_state.current_limit,
+        step=10.0,
+        key="current_limit",
+        on_change=sync_to_cloud
+    )
+    paid_amount = st.number_input(
+        "Paid Amount (AUD):",
+        value=st.session_state.paid_amount,
+        step=1.0,
+        min_value=0.0,
+        key="paid_amount",
+        on_change=on_paid_amount_change  # captures timestamp when > 0
+    )
+
+    # --- DISPLAY PAYMENT TIMESTAMP (if captured) ---
+    if st.session_state.payment_timestamp:
+        st.info(f"🕒 **Payment captured at:** {st.session_state.payment_timestamp} AEST/AEDT")
+
+    # --- KEEP EXISTING ADJUSTED AMOUNT INPUT ---
+    adj = st.number_input(
+        "Adjusted Amount (AUD):",
+        value=st.session_state.pb_adj,
+        step=1.0,
+        key="pb_adj",
+        on_change=sync_to_cloud
+    )
 
     today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
 
+    # --- DAYS REMAINING (unchanged logic) ---
     current_weekday = NOW.weekday()
     days_since_thurs = (current_weekday - 3) % 7
 
@@ -373,9 +438,11 @@ with tab2:
     else:
         days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
 
+    # --- CORE CALCULATION LOGIC (New) ---
     weekly_limit = 630.0
-    remaining_funds = weekly_limit - spent + adj
-    net_spent = spent - adj
+    raw_spent = start_limit - current_limit
+    true_net_spent = raw_spent + paid_amount
+    remaining_funds = weekly_limit - true_net_spent + adj
     daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
 
     st.divider()
@@ -389,9 +456,17 @@ with tab2:
     else:
         col_b.metric("Allowed Daily Spend", "Last Day")
 
-    col_c.metric("Net Spent", f"${net_spent:.2f}")
+    col_c.metric("True Net Spent", f"${true_net_spent:.2f}")
 
-# --- TAB 3: WOOLIES PAY ---
+    # --- DETAIL BREAKDOWN (collapsible for power users) ---
+    with st.expander("📐 Calculation Breakdown"):
+        st.write(f"**Raw Spent** = Start Available ({start_limit}) – Current Available ({current_limit}) = **${raw_spent:.2f}**")
+        st.write(f"**True Net Spent** = Raw Spent ({raw_spent}) + Paid Amount ({paid_amount}) = **${true_net_spent:.2f}**")
+        st.write(f"**Remaining** = Weekly Budget ({weekly_limit}) – True Net Spent ({true_net_spent}) = **${remaining_funds:.2f}**")
+        if days_left_weekly > 0:
+            st.write(f"**Daily Allowance** = Remaining ({remaining_funds:.2f}) ÷ Days Left ({days_left_weekly}) = **${daily_allowance_weekly:.2f}**")
+
+# --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
     st.info("Rates include FY27 Pay Increase (4.75%), Casual Loading and Shift Penalties. Tax @28%")
@@ -431,7 +506,7 @@ with tab3:
     goal_delta = est_net - NET_GOAL
     m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
 
-# --- TAB 4: UTILITY TRACKER ---
+# --- TAB 4: UTILITY TRACKER (unchanged) ---
 with tab4:
     st.header("⚡ Electricity Analysis")
     try:
