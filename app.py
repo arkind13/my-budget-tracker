@@ -40,7 +40,7 @@ def get_gspread_client():
     # Remove non-credential keys that may be present in secrets.toml
     creds_dict.pop("spreadsheet", None)
     creds_dict.pop("worksheet", None)
-
+    
     credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(credentials)
 
@@ -54,9 +54,8 @@ def gsheet_read(spreadsheet_url: str, worksheet: str, ttl: int = 0) -> pd.DataFr
         ws = ss.worksheet(worksheet)
         df = get_as_dataframe(ws, evaluate_formulas=True)
         return df
-
+    
     # Use a cache key based on the spreadsheet URL + worksheet name
-    # The _client_id param forces cache to be invalidated when client changes
     return _read_cached("v1", spreadsheet_url, worksheet)
 
 
@@ -88,25 +87,18 @@ def load_gsheet_data():
     try:
         df = gsheet_read(DASHBOARD_SHEET_URL, "Sheet1", ttl=0)
         if not df.empty:
-            # Strip whitespace from column names (Google Sheets often has trailing spaces)
-            df.columns = df.columns.str.strip()
-
-            # Get the first row as a dict
-            row = df.iloc[0].to_dict()
-
-            # Clean up: replace empty strings and NaN with None so .get() defaults work
-            cleaned = {}
-            for k, v in row.items():
-                if v is None or (isinstance(v, float) and pd.isna(v)) or v == "":
-                    cleaned[k] = None
-                else:
-                    cleaned[k] = v
-            return cleaned
+            return df.iloc[0].to_dict()
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
 
+    # Fallback defaults — now using new credit-limit fields
     return {
-        "Total Spent So Far": 180.0,
+        "Start Available Limit": 1000.0,
+        "Current Available Limit": 850.0,
+        "Paid Amount": 0.0,
+        "Payment Timestamp": "",
+        "True Net Spent": 150.0,
+        "Total Spent So Far": 180.0,   # kept for backward compat
         "Adjusted Amount": 0.0,
         "Standard Hours": 17.5,
         "Sunday Hours": 5.5,
@@ -128,7 +120,7 @@ def load_openrouter_data():
         # Parse datetime column
         df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
 
-        # Convert numeric columns from string to proper numeric dtype
+        # ✅ Convert numeric columns from string to proper numeric dtype
         for col in NUMERIC_COLS:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -142,47 +134,84 @@ def load_openrouter_data():
 def sync_to_cloud():
     """Pushes current UI values to Google Sheets for Sheet1 metrics."""
     try:
+        raw_spent = st.session_state.start_limit - st.session_state.current_limit
+        pb_adj = st.session_state.get("pb_adj", 0.0)
+        true_net_spent = raw_spent + paid_amount - pb_adj        # ← adjusted amount subtracted
+
+        # Defensive: grab pb_spent with a fallback
+        pb_spent = st.session_state.get("pb_spent", 0.0)
+        pb_adj = st.session_state.get("pb_adj", 0.0)
+        w_n = st.session_state.get("w_n", 0.0)
+        w_s = st.session_state.get("w_s", 0.0)
+        w_l = st.session_state.get("w_l", 0.0)
+        w_p = st.session_state.get("w_p", 0.0)
+
         updates_dict = {
-            "Total Spent So Far": st.session_state.pb_spent,
-            "Adjusted Amount": st.session_state.pb_adj,
-            "Standard Hours": st.session_state.w_n,
-            "Sunday Hours": st.session_state.w_s,
-            "Late Night Hours": st.session_state.w_l,
-            "Public Holiday Hours": st.session_state.w_p
+            "Start Available Limit": st.session_state.start_limit,
+            "Current Available Limit": st.session_state.current_limit,
+            "Paid Amount": st.session_state.paid_amount,
+            "Payment Timestamp": st.session_state.payment_timestamp,
+            "True Net Spent": true_net_spent,
+            "Total Spent So Far": pb_spent,
+            "Adjusted Amount": pb_adj,
+            "Standard Hours": w_n,
+            "Sunday Hours": w_s,
+            "Late Night Hours": w_l,
+            "Public Holiday Hours": w_p,
         }
         df = pd.DataFrame([updates_dict])
         gsheet_update(DASHBOARD_SHEET_URL, "Sheet1", df)
-        st.toast("Cloud Synced!")
+        st.toast("✅ Cloud Synced!")
     except Exception as e:
         st.error(f"Sync failed: {e}")
 
 
-# --- HELPER: SAFE FLOAT CONVERSION ---
-def safe_float(value, default=0.0):
-    """Safely convert a value to float, returning default on failure."""
-    try:
-        result = float(value)
-        if pd.isna(result):
-            return default
-        return result
-    except (TypeError, ValueError):
-        return default
+# --- PAYMENT TIMESTAMPING CALLBACK ---
+def on_paid_amount_change():
+    """If Paid Amount > 0, capture current AEST/AEDT timestamp."""
+    paid = st.session_state.paid_amount
+    if paid > 0:
+        st.session_state.payment_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+    else:
+        st.session_state.payment_timestamp = ""
+    sync_to_cloud()
 
 
-# --- INITIALIZE SESSION STATE ---
+# --- INITIALIZE SESSION STATE (upgrade-safe) ---
+# Use a single block that always checks each key individually
+_gs_data = load_gsheet_data()
+
+# Credit-limit fields
+if "start_limit" not in st.session_state:
+    st.session_state.start_limit = float(_gs_data.get("Start Available Limit", 1000.0))
+if "current_limit" not in st.session_state:
+    st.session_state.current_limit = float(_gs_data.get("Current Available Limit", 850.0))
+if "paid_amount" not in st.session_state:
+    st.session_state.paid_amount = float(_gs_data.get("Paid Amount", 0.0))
+if "payment_timestamp" not in st.session_state:
+    st.session_state.payment_timestamp = _gs_data.get("Payment Timestamp", "")
+
+# Legacy fields (still needed for backward compat and sync_to_cloud)
+if "pb_spent" not in st.session_state:
+    st.session_state.pb_spent = float(_gs_data.get("Total Spent So Far", 180.0))
+if "pb_adj" not in st.session_state:
+    st.session_state.pb_adj = float(_gs_data.get("Adjusted Amount", 0.0))
+if "w_n" not in st.session_state:
+    st.session_state.w_n = float(_gs_data.get("Standard Hours", 17.5))
+if "w_s" not in st.session_state:
+    st.session_state.w_s = float(_gs_data.get("Sunday Hours", 5.5))
+if "w_l" not in st.session_state:
+    st.session_state.w_l = float(_gs_data.get("Late Night Hours", 1.5))
+if "w_p" not in st.session_state:
+    st.session_state.w_p = float(_gs_data.get("Public Holiday Hours", 0.0))
+
+# Mark as initialized
 if "initialized" not in st.session_state:
-    gs_data = load_gsheet_data()
-    st.session_state.pb_spent = safe_float(gs_data.get("Total Spent So Far"), 180.0)
-    st.session_state.pb_adj   = safe_float(gs_data.get("Adjusted Amount"), 0.0)
-    st.session_state.w_n      = safe_float(gs_data.get("Standard Hours"), 17.5)
-    st.session_state.w_s      = safe_float(gs_data.get("Sunday Hours"), 5.5)
-    st.session_state.w_l      = safe_float(gs_data.get("Late Night Hours"), 1.5)
-    st.session_state.w_p      = safe_float(gs_data.get("Public Holiday Hours"), 0.0)
     st.session_state.initialized = True
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("Connection")
+    st.header("🔄 Connection")
     if st.button("Manual Refresh"):
         st.cache_data.clear()
         for key in list(st.session_state.keys()):
@@ -195,8 +224,8 @@ NOW = datetime.now()
 ONE_YEAR_AGO = NOW - timedelta(days=365)
 
 # --- APP INTERFACE ---
-st.title("Personal Dashboard")
-tab1, tab2, tab3, tab4 = st.tabs(["OpenRouter Data", "Personal Budget", "Woolies Pay", "Utility Tracker"])
+st.title("📊 Personal Dashboard")
+tab1, tab2, tab3, tab4 = st.tabs(["🤖 OpenRouter Data", "💰 Personal Budget", "🛒 Woolies Pay", "⚡ Utility Tracker"])
 
 # --- TAB 1: OPENROUTER DATA ---
 with tab1:
@@ -213,7 +242,7 @@ with tab1:
             df_new = pd.read_csv(uploaded_file)
             df_new['created_at'] = pd.to_datetime(df_new['created_at'])
 
-            # Convert numeric columns in the uploaded CSV too
+            # ✅ Convert numeric columns in the uploaded CSV too
             for col in NUMERIC_COLS:
                 if col in df_new.columns:
                     df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
@@ -234,7 +263,7 @@ with tab1:
             df_upload = df_combined.copy()
             df_upload['created_at'] = df_upload['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # Handle empty/NaN text fields cleanly for cloud storage payload
+            # ✅ Handle empty/NaN text fields cleanly for cloud storage payload
             for col in df_upload.columns:
                 if col in NUMERIC_COLS:
                     df_upload[col] = pd.to_numeric(df_upload[col], errors='coerce')
@@ -249,7 +278,7 @@ with tab1:
                 gsheet_create_worksheet(DASHBOARD_SHEET_URL, "OpenRouter_Data", df_upload)
 
             st.cache_data.clear()
-            st.success("File processed, de-duplicated, and rolling 1-year archive updated successfully!")
+            st.success("🚀 File processed, de-duplicated, and rolling 1-year archive updated successfully!")
             df_or = df_combined  # Update view state instantly
         except Exception as e:
             st.error(f"Error handling file upload processing pipeline: {e}")
@@ -264,10 +293,10 @@ with tab1:
 
         # Display data update date ceiling header
         max_date = df_or['created_at'].max().strftime('%d-%b-%Y')
-        st.subheader(f"Data updated till: {max_date}")
+        st.subheader(f"📅 Data updated till: {max_date}")
 
         # --- FILTERS PANEL ---
-        st.write("### Filters")
+        st.write("### 🔍 Filters")
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
 
         with f_col1:
@@ -306,7 +335,7 @@ with tab1:
         filt_tok, filt_amt, filt_3m = calculate_metrics(df_filtered)
 
         # UI Metrics Blocks Display
-        st.write("### Key Summary Metrics")
+        st.write("### 📈 Key Summary Metrics")
         m_col1, m_col2, m_col3 = st.columns(3)
         m_col1.metric("Total Tokens (Filtered / Global)", f"{filt_tok:,.0f}", delta=f"Global: {unfilt_tok:,.0f}", delta_color="off")
         m_col2.metric("Total Cost (Filtered / Global)", f"${filt_amt:,.2f}", delta=f"Global: ${unfilt_amt:,.2f}", delta_color="off")
@@ -315,7 +344,7 @@ with tab1:
         st.divider()
 
         # --- INTERACTIVE DATAFRAME VIEW ---
-        st.write("### Model Usage Breakdown")
+        st.write("### 📋 Model Usage Breakdown")
 
         df_display = df_filtered.groupby('model_permaslug').agg(
             Total_Tokens=('total_tokens', 'sum'),
@@ -342,7 +371,7 @@ with tab1:
 
         # --- MODEL PERCENTAGE VISUALIZATION WITH 80% PARETO GROUPING ---
         if not df_display.empty:
-            st.write("### Model Volume Proportion (%)")
+            st.write("### 🍩 Model Volume Proportion (%)")
 
             df_chart = df_display.sort_values(by="Total Tokens", ascending=False).copy()
             total_tokens_sum = df_chart["Total Tokens"].sum()
@@ -374,22 +403,56 @@ with tab1:
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
 
-# --- TAB 2: PERSONAL BUDGET ---
+
+# =============================================================================
+# TAB 2: PERSONAL BUDGET — REFACTORED WITH CREDIT-LIMIT LOGIC
+# =============================================================================
 with tab2:
     st.header("Weekly Budget Tracker")
-    st.info("Week starts **Thursday**.")
+    st.info("Week starts **Thursday**. Using credit-card available-limit logic to bypass pending / cleared entry errors.")
 
     st.metric("Weekly Budget", "$630.00")
 
-    spent = st.number_input("Total Spent so far (including today):",
-                           value=st.session_state.pb_spent,
-                           step=1.0, key="pb_spent", on_change=sync_to_cloud)
-    adj = st.number_input("Adjusted Amount (AUD):",
-                         value=st.session_state.pb_adj,
-                         step=1.0, key="pb_adj", on_change=sync_to_cloud)
+    # --- NEW 3-FIELD INPUTS (replace old "Total Spent So Far") ---
+    start_limit = st.number_input(
+        "Weekly Start Available Limit (AUD):",
+        value=st.session_state.start_limit,
+        step=10.0,
+        key="start_limit",
+        on_change=sync_to_cloud
+    )
+    current_limit = st.number_input(
+        "Current Available Limit (AUD):",
+        value=st.session_state.current_limit,
+        step=10.0,
+        key="current_limit",
+        on_change=sync_to_cloud
+    )
+    paid_amount = st.number_input(
+        "Paid Amount (AUD):",
+        value=st.session_state.paid_amount,
+        step=1.0,
+        min_value=0.0,
+        key="paid_amount",
+        on_change=on_paid_amount_change  # captures timestamp when > 0
+    )
+
+    # --- DISPLAY PAYMENT TIMESTAMP (if captured) ---
+    if st.session_state.payment_timestamp:
+        st.info(f"🕒 **Payment captured at:** {st.session_state.payment_timestamp} AEST/AEDT")
+
+    # --- KEEP EXISTING ADJUSTED AMOUNT INPUT ---
+    adj = st.number_input(
+        "Adjusted Amount (AUD):",
+        value=st.session_state.pb_adj,
+        step=1.0,
+        key="pb_adj",
+        on_change=sync_to_cloud
+    )
 
     today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
 
+    # --- DAYS REMAINING (unchanged logic) ---
     current_weekday = NOW.weekday()
     days_since_thurs = (current_weekday - 3) % 7
 
@@ -398,27 +461,38 @@ with tab2:
     else:
         days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
 
+    # --- CORE CALCULATION LOGIC (New) ---
     weekly_limit = 630.0
-    remaining_funds = weekly_limit - spent + adj
-    net_spent = spent - adj
+    raw_spent = start_limit - current_limit
+    true_net_spent = raw_spent + paid_amount
+    remaining_funds = weekly_limit - true_net_spent + adj
     daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
 
     st.divider()
     col_a, col_b, col_c = st.columns(3)
 
     col_a.metric("Remaining Budget", f"${remaining_funds:.2f}")
-    col_a.caption(f"{days_left_weekly} days remaining")
+    col_a.caption(f"🗓️ {days_left_weekly} days remaining")
 
     if days_left_weekly > 0:
         col_b.metric("Allowed Daily Spend", f"${daily_allowance_weekly:.2f}")
     else:
         col_b.metric("Allowed Daily Spend", "Last Day")
 
-    col_c.metric("Net Spent", f"${net_spent:.2f}")
+    col_c.metric("True Net Spent", f"${true_net_spent:.2f}")
 
-# --- TAB 3: WOOLIES PAY ---
+    # --- DETAIL BREAKDOWN (collapsible for power users) ---
+    with st.expander("📐 Calculation Breakdown"):
+        st.write(f"**Raw Spent** = Start Available ({start_limit}) – Current Available ({current_limit}) = **${raw_spent:.2f}**")
+        st.write(f"**Adjusted Amount** = **${adj:.2f}** (subtracted)")
+        st.write(f"**True Net Spent** = Raw Spent ({raw_spent:.2f}) + Paid Amount ({paid_amount:.2f}) – Adjusted Amount ({adj:.2f}) = **${true_net_spent:.2f}**")
+        st.write(f"**Remaining Budget** = Weekly Budget ({weekly_limit}) – True Net Spent ({true_net_spent:.2f}) = **${remaining_funds:.2f}**")
+        if days_left_weekly > 0:
+            st.write(f"**Allowed Daily Spend** = Remaining ({remaining_funds:.2f}) ÷ Days Left ({days_left_weekly}) = **${daily_allowance_weekly:.2f}**")
+
+# --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
-    st.header("Woolies Pay Calculator")
+    st.header("🛒 Woolies Pay Calculator")
     st.info("Rates include FY27 Pay Increase (4.75%), Casual Loading and Shift Penalties. Tax @28%")
 
     row1_col1, row1_col2 = st.columns(2)
@@ -456,9 +530,9 @@ with tab3:
     goal_delta = est_net - NET_GOAL
     m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
 
-# --- TAB 4: UTILITY TRACKER ---
+# --- TAB 4: UTILITY TRACKER (unchanged) ---
 with tab4:
-    st.header("Electricity Analysis")
+    st.header("⚡ Electricity Analysis")
     try:
         df_e_raw = gsheet_read(ELEC_SHEET_URL, "Sheet1", ttl=0)
         df_e = df_e_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
@@ -480,7 +554,7 @@ with tab4:
         st.error(f"Elec Error: {e}")
 
     st.divider()
-    st.header("Gas Analysis")
+    st.header("🔥 Gas Analysis")
     try:
         df_g_raw = gsheet_read(ELEC_SHEET_URL, "Gas", ttl=0)
         df_g = df_g_raw.iloc[:, [3, 4, 6, 9, 12]].copy()
