@@ -28,6 +28,19 @@ ELEC_SHEET_URL = "https://docs.google.com/spreadsheets/d/10szrS6fabDdK19pfCCiedh
 NUMERIC_COLS = ['tokens_prompt', 'tokens_completion', 'cost_total']
 
 
+# --- HELPER FUNCTION ---
+def safe_float(value, default=0.0):
+    """Safely convert a value to float, handling NaN, None, and strings."""
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # --- GSPREAD CONNECTION HELPER ---
 @st.cache_resource
 def get_gspread_client():
@@ -87,7 +100,16 @@ def load_gsheet_data():
     try:
         df = gsheet_read(DASHBOARD_SHEET_URL, "Sheet1", ttl=0)
         if not df.empty:
-            return df.iloc[0].to_dict()
+            # Convert to dict and handle NaN values properly
+            raw_dict = df.iloc[0].to_dict()
+            # Clean the dict: replace NaN with None
+            clean_dict = {}
+            for key, value in raw_dict.items():
+                if pd.isna(value):
+                    clean_dict[key] = None
+                else:
+                    clean_dict[key] = value
+            return clean_dict
     except Exception as e:
         st.sidebar.error(f"Connection Error: {e}")
 
@@ -183,27 +205,27 @@ _gs_data = load_gsheet_data()
 
 # Credit-limit fields
 if "start_limit" not in st.session_state:
-    st.session_state.start_limit = float(_gs_data.get("Start Available Limit", 1000.0))
+    st.session_state.start_limit = safe_float(_gs_data.get("Start Available Limit"), 1000.0)
 if "current_limit" not in st.session_state:
-    st.session_state.current_limit = float(_gs_data.get("Current Available Limit", 850.0))
+    st.session_state.current_limit = safe_float(_gs_data.get("Current Available Limit"), 850.0)
 if "paid_amount" not in st.session_state:
-    st.session_state.paid_amount = float(_gs_data.get("Paid Amount", 0.0))
+    st.session_state.paid_amount = safe_float(_gs_data.get("Paid Amount"), 0.0)
 if "payment_timestamp" not in st.session_state:
-    st.session_state.payment_timestamp = _gs_data.get("Payment Timestamp", "")
+    st.session_state.payment_timestamp = _gs_data.get("Payment Timestamp", "") or ""
 
 # Legacy fields (still needed for backward compat and sync_to_cloud)
 if "pb_spent" not in st.session_state:
-    st.session_state.pb_spent = float(_gs_data.get("Total Spent So Far", 180.0))
+    st.session_state.pb_spent = safe_float(_gs_data.get("Total Spent So Far"), 180.0)
 if "pb_adj" not in st.session_state:
-    st.session_state.pb_adj = float(_gs_data.get("Adjusted Amount", 0.0))
+    st.session_state.pb_adj = safe_float(_gs_data.get("Adjusted Amount"), 0.0)
 if "w_n" not in st.session_state:
-    st.session_state.w_n = float(_gs_data.get("Standard Hours", 17.5))
+    st.session_state.w_n = safe_float(_gs_data.get("Standard Hours"), 17.5)
 if "w_s" not in st.session_state:
-    st.session_state.w_s = float(_gs_data.get("Sunday Hours", 5.5))
+    st.session_state.w_s = safe_float(_gs_data.get("Sunday Hours"), 5.5)
 if "w_l" not in st.session_state:
-    st.session_state.w_l = float(_gs_data.get("Late Night Hours", 1.5))
+    st.session_state.w_l = safe_float(_gs_data.get("Late Night Hours"), 1.5)
 if "w_p" not in st.session_state:
-    st.session_state.w_p = float(_gs_data.get("Public Holiday Hours", 0.0))
+    st.session_state.w_p = safe_float(_gs_data.get("Public Holiday Hours"), 0.0)
 
 # Mark as initialized
 if "initialized" not in st.session_state:
