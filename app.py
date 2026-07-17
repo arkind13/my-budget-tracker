@@ -433,7 +433,7 @@ with tab2:
     st.header("Weekly Budget Tracker")
     st.info("Week starts **Thursday**. Using credit-card available-limit logic to bypass pending / cleared entry errors.")
 
-    st.metric("Weekly Budget", "$630.00")
+    st.metric("Weekly Budget", "$700.00")
 
     # --- NEW 3-FIELD INPUTS (replace old "Total Spent So Far") ---
     start_limit = st.number_input(
@@ -484,7 +484,7 @@ with tab2:
         days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
 
     # --- CORE CALCULATION LOGIC (New) ---
-    weekly_limit = 630.0
+    weekly_limit = 700.0
     raw_spent = start_limit - current_limit
     true_net_spent = raw_spent + paid_amount
     remaining_funds = weekly_limit - true_net_spent + adj
