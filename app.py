@@ -483,11 +483,11 @@ with tab2:
     else:
         days_left_weekly = (7 - (days_since_thurs + 1)) if today_is_over else (7 - days_since_thurs)
 
-    # --- CORE CALCULATION LOGIC (New) ---
+    # --- CORE CALCULATION LOGIC (Fixed) ---
     weekly_limit = 700.0
     raw_spent = start_limit - current_limit
-    true_net_spent = raw_spent + paid_amount
-    remaining_funds = weekly_limit - true_net_spent + adj
+    true_net_spent = raw_spent + paid_amount - adj       # ← adj IS NOW ACTUALLY SUBTRACTED
+    remaining_funds = weekly_limit - true_net_spent       # ← no longer needs +adj here
     daily_allowance_weekly = remaining_funds / max(days_left_weekly, 1)
 
     st.divider()
