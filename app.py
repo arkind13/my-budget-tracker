@@ -313,19 +313,26 @@ with tab1:
         df_or['year'] = df_or['created_at'].dt.year
         df_or['month'] = df_or['created_at'].dt.strftime('%b')
 
+        # API key label: blank/NaN keys are labelled as "chat"
+        if 'api_key_name' not in df_or.columns:
+            df_or['api_key_name'] = ''
+        df_or['api_key_label'] = df_or['api_key_name'].fillna('').astype(str).str.strip().replace('', 'chat')
+
         # Display data update date ceiling header
         max_date = df_or['created_at'].max().strftime('%d-%b-%Y')
         st.subheader(f"📅 Data updated till: {max_date}")
 
         # --- FILTERS PANEL ---
         st.write("### 🔍 Filters")
-        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+        f_col1, f_col2 = st.columns(2)
 
         with f_col1:
             model_query = st.text_input("Include Model (e.g., deepseek):", value="")
         with f_col2:
             default_exclusions = "bytedance/seedance-2.0-fast-20260414|google/veo-3.1-lite-20260331|google/gemini-2.5-flash-image|recraft/recraft-v4.1-pro-vector-20260514"
             exclude_query = st.text_input("Exclude Model:", value=default_exclusions)
+
+        f_col3, f_col4, f_col5 = st.columns(3)
         with f_col3:
             years_avail = sorted(df_or['year'].unique(), reverse=True)
             selected_years = st.multiselect("Filter by Year:", options=years_avail, default=years_avail)
@@ -333,6 +340,9 @@ with tab1:
             months_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             months_avail = [m for m in months_order if m in df_or['month'].unique()]
             selected_months = st.multiselect("Filter by Month:", options=months_avail, default=months_avail)
+        with f_col5:
+            api_keys_avail = sorted(df_or['api_key_label'].unique())
+            selected_api_keys = st.multiselect("Filter by API Key Name:", options=api_keys_avail, default=api_keys_avail)
 
         # Apply filters seamlessly
         df_filtered = df_or.copy()
@@ -344,6 +354,8 @@ with tab1:
             df_filtered = df_filtered[df_filtered['year'].isin(selected_years)]
         if selected_months:
             df_filtered = df_filtered[df_filtered['month'].isin(selected_months)]
+        if selected_api_keys:
+            df_filtered = df_filtered[df_filtered['api_key_label'].isin(selected_api_keys)]
 
         # --- CALCULATION LOGIC & SUMMARY CARDS ---
         def calculate_metrics(dataframe):
@@ -421,6 +433,32 @@ with tab1:
                 )
 
                 st.plotly_chart(fig_pie, use_container_width=True)
+
+        # --- API KEY USAGE PIE CHART ---
+        df_key_usage = df_filtered.groupby('api_key_label').agg(
+            Total_Amount=('cost_total', lambda s: pd.to_numeric(s, errors='coerce').sum())
+        ).reset_index()
+
+        df_key_usage = df_key_usage.sort_values('Total_Amount', ascending=False)
+
+        if (df_key_usage['Total_Amount'] > 0).any():
+            st.write("### 🥧 API Key Cost Proportion (%)")
+
+            fig_key_pie = go.Figure(data=[go.Pie(
+                labels=df_key_usage['api_key_label'],
+                values=df_key_usage['Total_Amount'],
+                hole=0.4,
+                textinfo='label+percent',
+                insidetextorientation='radial'
+            )])
+
+            fig_key_pie.update_layout(
+                margin=dict(t=20, b=20, l=20, r=20),
+                showlegend=True,
+                legend=dict(orientation="h", y=-0.1)
+            )
+
+            st.plotly_chart(fig_key_pie, use_container_width=True)
 
     else:
         st.info("No OpenRouter data found in the cloud workspace. Upload a CSV file above to establish records.")
