@@ -73,15 +73,58 @@ def gsheet_read(spreadsheet_url: str, worksheet: str, ttl: int = 0) -> pd.DataFr
 
 
 def gsheet_update(spreadsheet_url: str, worksheet: str, data: pd.DataFrame):
-    """Update (overwrite) a Google Sheet worksheet with DataFrame data."""
+    """
+    Update (overwrite) a Google Sheet worksheet with DataFrame data.
+
+    Uses a targeted write: only the cells covered by the DataFrame's used range
+    are written (via worksheet.update with raw values), instead of clear() +
+    set_with_dataframe which rewrites the entire worksheet on every change.
+    This avoids full-worksheet rewrites that cause timeouts / API quota hits
+    when a single field changes.
+    """
     client = get_gspread_client()
     ss = client.open_by_url(spreadsheet_url)
     try:
         ws = ss.worksheet(worksheet)
-        ws.clear()
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(title=worksheet, rows=data.shape[0], cols=data.shape[1])
-    set_with_dataframe(ws, data)
+
+    # Header row: column names; data rows follow.
+    header = [str(c) for c in data.columns]
+    body = []
+    for _, row in data.iterrows():
+        body.append(["" if pd.isna(v) else v for v in row])
+
+    rows_to_write = [header] + body
+    # Write only the used range (row1=header, row2..=data). Do NOT clear the
+    # rest of the sheet — untouched cells keep their values.
+    ws.update(rows_to_write, raw=False)  # values first; range auto-detected
+    st.cache_data.clear()
+
+
+def gsheet_update_field(spreadsheet_url: str, worksheet: str, field: str, value):
+    """
+    Update a SINGLE field (cell) in the dashboard worksheet without touching
+    any other cell. This is the low-traffic primitive used for targeted edits
+    (e.g. changing only the balance or only one Woolies hours field).
+
+    Layout: row 1 = column names, row 2 = the single data row.
+    The field's column is located by scanning the header row.
+
+    Args:
+        spreadsheet_url (str): The Google Sheet URL.
+        worksheet (str): Worksheet name (e.g. "Sheet1").
+        field (str): Exact column header name (e.g. "Current Available Limit").
+        value: The new value to write.
+    """
+    client = get_gspread_client()
+    ss = client.open_by_url(spreadsheet_url)
+    ws = ss.worksheet(worksheet)
+    headers = ws.row_values(1)
+    if field not in headers:
+        raise ValueError(f"Field '{field}' not found in worksheet headers: {headers}")
+    col_idx = headers.index(field) + 1
+    ws.update_cell(2, col_idx, value)
     st.cache_data.clear()
 
 
@@ -153,9 +196,48 @@ def load_openrouter_data():
         return pd.DataFrame()
 
 
-def sync_to_cloud():
-    """Pushes current UI values to Google Sheets for Sheet1 metrics."""
+# Mapping: Google-Sheet header name -> Streamlit session_state key.
+# Used by sync_to_cloud(field) to read the changed value for a targeted update.
+FIELD_TO_SESSION_KEY = {
+    "Start Available Limit": "start_limit",
+    "Current Available Limit": "current_limit",
+    "Paid Amount": "paid_amount",
+    "Payment Timestamp": "payment_timestamp",
+    "True Net Spent": None,  # computed, not stored as an input
+    "Total Spent So Far": "pb_spent",
+    "Adjusted Amount": "pb_adj",
+    "Standard Hours": "w_n",
+    "Sunday Hours": "w_s",
+    "Late Night Hours": "w_l",
+    "Public Holiday Hours": "w_p",
+}
+
+
+def sync_to_cloud(field=None):
+    """
+    Pushes UI values to Google Sheets.
+
+    When `field` is provided (e.g. "Current Available Limit"), only that single
+    cell is written via gsheet_update_field — a targeted edit that avoids
+    rewriting the entire worksheet. This fixes the over-sync problem where
+    changing one field rewrote every column and caused timeouts / quota hits.
+
+    When `field` is None, falls back to writing the whole dashboard row
+    (used for bulk operations).
+
+    Args:
+        field (str | None): Exact header name of the field that changed.
+    """
     try:
+        if field is not None:
+            session_key = FIELD_TO_SESSION_KEY.get(field)
+            if session_key is None:
+                raise ValueError(f"No session_state key mapped for field '{field}'")
+            gsheet_update_field(DASHBOARD_SHEET_URL, "Sheet1", field,
+                                st.session_state.get(session_key, None))
+            st.toast(f"✅ Synced: {field}")
+            return
+
         raw_spent = st.session_state.start_limit - st.session_state.current_limit
         pb_adj = st.session_state.get("pb_adj", 0.0)
         true_net_spent = raw_spent + paid_amount - pb_adj        # ← adjusted amount subtracted
@@ -196,7 +278,9 @@ def on_paid_amount_change():
         st.session_state.payment_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
     else:
         st.session_state.payment_timestamp = ""
-    sync_to_cloud()
+    sync_to_cloud("Paid Amount")
+    # Payment timestamp changed too — write it in the same targeted fashion.
+    sync_to_cloud("Payment Timestamp")
 
 
 # --- INITIALIZE SESSION STATE (upgrade-safe) ---
@@ -479,14 +563,14 @@ with tab2:
         value=st.session_state.start_limit,
         step=10.0,
         key="start_limit",
-        on_change=sync_to_cloud
+        on_change=lambda: sync_to_cloud("Start Available Limit")
     )
     current_limit = st.number_input(
         "Current Available Limit (AUD):",
         value=st.session_state.current_limit,
         step=10.0,
         key="current_limit",
-        on_change=sync_to_cloud
+        on_change=lambda: sync_to_cloud("Current Available Limit")
     )
     paid_amount = st.number_input(
         "Paid Amount (AUD):",
@@ -507,7 +591,7 @@ with tab2:
         value=st.session_state.pb_adj,
         step=1.0,
         key="pb_adj",
-        on_change=sync_to_cloud
+        on_change=lambda: sync_to_cloud("Adjusted Amount")
     )
 
     today_is_over = st.checkbox("Today is over (count as completed day)", value=False)
@@ -559,13 +643,13 @@ with tab3:
     row2_col1, row2_col2 = st.columns(2)
 
     with row1_col1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=sync_to_cloud)
+        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Standard Hours"))
     with row1_col2:
-        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=sync_to_cloud)
+        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=lambda: sync_to_cloud("Late Night Hours"))
     with row2_col1:
-        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s, step=0.5, key="w_s", on_change=sync_to_cloud)
+        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s, step=0.5, key="w_s", on_change=lambda: sync_to_cloud("Sunday Hours"))
     with row2_col2:
-        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p, step=0.5, key="w_p", on_change=sync_to_cloud)
+        p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p, step=0.5, key="w_p", on_change=lambda: sync_to_cloud("Public Holiday Hours"))
 
     FY27_INCREASE = 1.0475
 
