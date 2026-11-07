@@ -165,8 +165,8 @@ def load_gsheet_data():
         "True Net Spent": 150.0,
         "Total Spent So Far": 180.0,   # kept for backward compat
         "Adjusted Amount": 0.0,
-        "Standard Hours": 17.5,
-        "Saturday Hours": 0.0,
+        "Before 6PM Hours": 0.0,
+        "Std+Sat Hours": 0.0,
         "Sunday Hours": 5.5,
         "Late Night Hours": 1.5,
         "Public Holiday Hours": 0.0,
@@ -208,8 +208,8 @@ FIELD_TO_SESSION_KEY = {
     "True Net Spent": None,  # computed, not stored as an input
     "Total Spent So Far": "pb_spent",
     "Adjusted Amount": "pb_adj",
-    "Standard Hours": "w_n",
-    "Saturday Hours": "w_sat",
+    "Before 6PM Hours": "w_n",
+    "Std+Sat Hours": "w_sat",
     "Sunday Hours": "w_s",
     "Late Night Hours": "w_l",
     "Public Holiday Hours": "w_p",
@@ -262,8 +262,8 @@ def sync_to_cloud(field=None):
             "True Net Spent": true_net_spent,
             "Total Spent So Far": pb_spent,
             "Adjusted Amount": pb_adj,
-            "Standard Hours": w_n,
-            "Saturday Hours": st.session_state.get("w_sat", 0.0),
+            "Before 6PM Hours": w_n,
+            "Std+Sat Hours": st.session_state.get("w_sat", 0.0),
             "Sunday Hours": w_s,
             "Late Night Hours": w_l,
             "Public Holiday Hours": w_p,
@@ -309,9 +309,9 @@ if "pb_spent" not in st.session_state:
 if "pb_adj" not in st.session_state:
     st.session_state.pb_adj = safe_float(_gs_data.get("Adjusted Amount"), 0.0)
 if "w_n" not in st.session_state:
-    st.session_state.w_n = safe_float(_gs_data.get("Standard Hours"), 17.5)
+    st.session_state.w_n = safe_float(_gs_data.get("Before 6PM Hours"), 0.0)
 if "w_sat" not in st.session_state:
-    st.session_state.w_sat = safe_float(_gs_data.get("Saturday Hours"), 0.0)
+    st.session_state.w_sat = safe_float(_gs_data.get("Std+Sat Hours"), 0.0)
 if "w_s" not in st.session_state:
     st.session_state.w_s = safe_float(_gs_data.get("Sunday Hours"), 5.5)
 if "w_l" not in st.session_state:
@@ -647,16 +647,16 @@ with tab2:
 # --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("PERMANENT from 9 Nov 2026 — rates straight from your contract: Standard Hours $28.26, Tuesday & Saturday the same (the 25% casual loading is gone). Tax % = what Woolworths withholds (edit it; the site carries the same field).")
+    st.info("PERMANENT from 9 Nov 2026 — your shifts (6pm-11pm Tue & Sat) sit in the Woolworths agreement's +25% spans: Before 6 PM $28.26, Std+Sat $35.33 (both days the same), late night & Sunday $42.39. Tax % = what Woolworths withholds (edit it; the site carries the same field).")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
     row3_col1, row3_col2 = st.columns(2)
 
     with row1_col1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Standard Hours"))
+        n_h = st.number_input("Before 6 PM Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Before 6PM Hours"))
     with row1_col2:
-        sat_h = st.number_input("Saturday Hours:", value=st.session_state.w_sat, step=0.5, key="w_sat", on_change=lambda: sync_to_cloud("Saturday Hours"))
+        sat_h = st.number_input("Std+Sat Hours (6pm-11pm & Sat):", value=st.session_state.w_sat, step=0.5, key="w_sat", on_change=lambda: sync_to_cloud("Std+Sat Hours"))
     with row2_col1:
         l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=lambda: sync_to_cloud("Late Night Hours"))
     with row2_col2:
@@ -668,14 +668,13 @@ with tab3:
 
     FY27_INCREASE = 1.0475
 
-    # PERMANENT rates (user 2026-11-07): THE USER'S CONTRACT — "both tue and
-    # sat its the same Standard Hours at $28.26". External lookups (award /
-    # Woolworths AFG agreement tables) lose to the contract document. Must
-    # mirror ai-studio budget-math.ts exactly.
-    BASE_ORD = 26.9797 * FY27_INCREASE          # Standard Hours ($28.26)
-    RATE_SAT = BASE_ORD                         # contract: Saturday pays standard too
-    RATE_PEN = BASE_ORD * 1.5                   # late night (payslip-confirm)
-    RATE_SUN = RATE_PEN                         # Sunday
+    # PERMANENT rates (user 2026-11-08): their shifts are 6pm-11pm Tue & Sat —
+    # both inside the Woolworths AFG Agreement's +25% spans, so Std+Sat is one
+    # bucket at base + 25%. Must mirror ai-studio budget-math.ts exactly.
+    BASE_ORD = 26.9797 * FY27_INCREASE          # Before 6 PM ($28.26)
+    RATE_SAT = BASE_ORD * 1.25                  # Std+Sat: weekday 6pm-11pm + Saturday
+    RATE_PEN = BASE_ORD * 1.5                   # late night (first 3 hrs) + Sunday 9am-11pm
+    RATE_SUN = RATE_PEN                         # same agreement bucket
     RATE_PH = BASE_ORD * 2.25                   # public holiday (payslip-confirm ~20 Nov)
     LAUNDRY, NET_GOAL = 6.25, 520.00
 
