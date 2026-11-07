@@ -647,14 +647,14 @@ with tab2:
 # --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("PERMANENT from 9 Nov 2026 — Fair Work retail-award penalties on the $28.26 ordinary rate (FY27 increase incl.); the 25% casual loading is gone. Tax % = what Woolworths withholds (edit it; the site carries the same field).")
+    st.info("PERMANENT from 9 Nov 2026 — rates per the Woolworths Australian Food Group Agreement 2024: weekday evenings (6pm-11pm) and Saturdays +25% on the $28.26 ordinary rate; the 25% casual loading is gone. Tax % = what Woolworths withholds (edit it; the site carries the same field).")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
     row3_col1, row3_col2 = st.columns(2)
 
     with row1_col1:
-        n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Standard Hours"))
+        n_h = st.number_input("Evening & Sat Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Standard Hours"))
     with row1_col2:
         sat_h = st.number_input("Saturday Hours:", value=st.session_state.w_sat, step=0.5, key="w_sat", on_change=lambda: sync_to_cloud("Saturday Hours"))
     with row2_col1:
@@ -668,17 +668,20 @@ with tab3:
 
     FY27_INCREASE = 1.0475
 
-    # PERMANENT rates (user 2026-11-07): ordinary $28.26 × Fair Work retail-award
-    # permanent penalties — the 25% casual loading is GONE (old constants were
-    # the award's casual column). Must mirror ai-studio budget-math.ts exactly.
-    BASE_ORD = 26.9797 * FY27_INCREASE          # ordinary Mon-Fri ($28.26)
-    RATE_SAT = BASE_ORD * 1.25                  # Saturday +25%
-    RATE_PEN = BASE_ORD * 1.5                   # late night +50%
-    RATE_SUN = BASE_ORD * 1.5                   # Sunday +50%
-    RATE_PH = BASE_ORD * 2.25                   # public holiday +125% (was casual 250% incl. loading)
+    # PERMANENT rates (user 2026-11-07): per the WOOLWORTHS AUSTRALIAN FOOD
+    # GROUP AGREEMENT 2024 (verified via the SDA table) — weekday 6pm-11pm and
+    # Saturday 7am-11pm BOTH pay base + 25% for permanent staff (the user's
+    # casual weekday rate equalled their Saturday rate, which is only possible
+    # for weekday EVENING shifts). Must mirror ai-studio budget-math.ts exactly.
+    BASE_ORD = 26.9797 * FY27_INCREASE          # ordinary Mon-Fri 7am-6pm ($28.26)
+    RATE_EVS = BASE_ORD * 1.25                  # weekday evening 6pm-11pm + Saturday 7am-11pm
+    RATE_SAT = RATE_EVS                         # same agreement bucket
+    RATE_PEN = BASE_ORD * 1.5                   # Sunday 9am-11pm + night first 3 hrs
+    RATE_SUN = RATE_PEN                         # same agreement bucket
+    RATE_PH = BASE_ORD * 2.25                   # public holiday (payslip-confirm ~20 Nov)
     LAUNDRY, NET_GOAL = 6.25, 520.00
 
-    total_gross = (n_h * BASE_ORD) + (sat_h * RATE_SAT) + (l_h * RATE_PEN) + (s_h * RATE_SUN) + (p_h * RATE_PH)
+    total_gross = (n_h * RATE_EVS) + (sat_h * RATE_SAT) + (l_h * RATE_PEN) + (s_h * RATE_SUN) + (p_h * RATE_PH)
     est_net = (total_gross * (1.0 - tax_pct / 100.0)) + LAUNDRY
 
     st.divider()
