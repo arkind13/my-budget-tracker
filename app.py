@@ -166,9 +166,11 @@ def load_gsheet_data():
         "Total Spent So Far": 180.0,   # kept for backward compat
         "Adjusted Amount": 0.0,
         "Standard Hours": 17.5,
+        "Saturday Hours": 0.0,
         "Sunday Hours": 5.5,
         "Late Night Hours": 1.5,
-        "Public Holiday Hours": 0.0
+        "Public Holiday Hours": 0.0,
+        "Wool Tax %": 28.0
     }
 
 
@@ -207,9 +209,11 @@ FIELD_TO_SESSION_KEY = {
     "Total Spent So Far": "pb_spent",
     "Adjusted Amount": "pb_adj",
     "Standard Hours": "w_n",
+    "Saturday Hours": "w_sat",
     "Sunday Hours": "w_s",
     "Late Night Hours": "w_l",
     "Public Holiday Hours": "w_p",
+    "Wool Tax %": "w_tax",
 }
 
 
@@ -259,9 +263,11 @@ def sync_to_cloud(field=None):
             "Total Spent So Far": pb_spent,
             "Adjusted Amount": pb_adj,
             "Standard Hours": w_n,
+            "Saturday Hours": st.session_state.get("w_sat", 0.0),
             "Sunday Hours": w_s,
             "Late Night Hours": w_l,
             "Public Holiday Hours": w_p,
+            "Wool Tax %": st.session_state.get("w_tax", 28.0),
         }
         df = pd.DataFrame([updates_dict])
         gsheet_update(DASHBOARD_SHEET_URL, "Sheet1", df)
@@ -304,12 +310,16 @@ if "pb_adj" not in st.session_state:
     st.session_state.pb_adj = safe_float(_gs_data.get("Adjusted Amount"), 0.0)
 if "w_n" not in st.session_state:
     st.session_state.w_n = safe_float(_gs_data.get("Standard Hours"), 17.5)
+if "w_sat" not in st.session_state:
+    st.session_state.w_sat = safe_float(_gs_data.get("Saturday Hours"), 0.0)
 if "w_s" not in st.session_state:
     st.session_state.w_s = safe_float(_gs_data.get("Sunday Hours"), 5.5)
 if "w_l" not in st.session_state:
     st.session_state.w_l = safe_float(_gs_data.get("Late Night Hours"), 1.5)
 if "w_p" not in st.session_state:
     st.session_state.w_p = safe_float(_gs_data.get("Public Holiday Hours"), 0.0)
+if "w_tax" not in st.session_state:
+    st.session_state.w_tax = safe_float(_gs_data.get("Wool Tax %"), 28.0)
 
 # Mark as initialized
 if "initialized" not in st.session_state:
@@ -637,39 +647,44 @@ with tab2:
 # --- TAB 3: WOOLIES PAY (unchanged) ---
 with tab3:
     st.header("🛒 Woolies Pay Calculator")
-    st.info("Rates include FY27 Pay Increase (4.75%), Casual Loading and Shift Penalties. Tax @28%")
+    st.info("PERMANENT from 9 Nov 2026 — Fair Work retail-award penalties on the $28.26 ordinary rate (FY27 increase incl.); the 25% casual loading is gone. Tax % = what Woolworths withholds (edit it; the site carries the same field).")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
+    row3_col1, row3_col2 = st.columns(2)
 
     with row1_col1:
         n_h = st.number_input("Standard Hours:", value=st.session_state.w_n, step=0.5, key="w_n", on_change=lambda: sync_to_cloud("Standard Hours"))
     with row1_col2:
-        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=lambda: sync_to_cloud("Late Night Hours"))
+        sat_h = st.number_input("Saturday Hours:", value=st.session_state.w_sat, step=0.5, key="w_sat", on_change=lambda: sync_to_cloud("Saturday Hours"))
     with row2_col1:
-        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s, step=0.5, key="w_s", on_change=lambda: sync_to_cloud("Sunday Hours"))
+        l_h = st.number_input("Late Night Hours:", value=st.session_state.w_l, step=0.5, key="w_l", on_change=lambda: sync_to_cloud("Late Night Hours"))
     with row2_col2:
+        s_h = st.number_input("Sunday Hours:", value=st.session_state.w_s, step=0.5, key="w_s", on_change=lambda: sync_to_cloud("Sunday Hours"))
+    with row3_col1:
         p_h = st.number_input("Public Holiday Hours:", value=st.session_state.w_p, step=0.5, key="w_p", on_change=lambda: sync_to_cloud("Public Holiday Hours"))
+    with row3_col2:
+        tax_pct = st.number_input("Tax % (what Wool takes out):", value=st.session_state.w_tax, step=1.0, min_value=0.0, max_value=60.0, key="w_tax", on_change=lambda: sync_to_cloud("Wool Tax %"))
 
     FY27_INCREASE = 1.0475
 
-    BASE_ORD = 26.9797 * FY27_INCREASE
-    CAS_LOAD = 6.7449 * FY27_INCREASE
-    SHIFT_25 = 6.7449 * FY27_INCREASE
-    SHIFT_50 = 13.4899 * FY27_INCREASE
+    # PERMANENT rates (user 2026-11-07): ordinary $28.26 × Fair Work retail-award
+    # permanent penalties — the 25% casual loading is GONE (old constants were
+    # the award's casual column). Must mirror ai-studio budget-math.ts exactly.
+    BASE_ORD = 26.9797 * FY27_INCREASE          # ordinary Mon-Fri ($28.26)
+    RATE_SAT = BASE_ORD * 1.25                  # Saturday +25%
+    RATE_PEN = BASE_ORD * 1.5                   # late night +50%
+    RATE_SUN = BASE_ORD * 1.5                   # Sunday +50%
+    RATE_PH = BASE_ORD * 2.25                   # public holiday +125% (was casual 250% incl. loading)
     LAUNDRY, NET_GOAL = 6.25, 520.00
 
-    rate_std = BASE_ORD + CAS_LOAD + SHIFT_25
-    rate_pen = BASE_ORD + CAS_LOAD + SHIFT_50
-    rate_ph = BASE_ORD * 2.5
-
-    total_gross = (n_h * rate_std) + ((l_h + s_h) * rate_pen) + (p_h * rate_ph)
-    est_net = (total_gross * 0.72) + LAUNDRY
+    total_gross = (n_h * BASE_ORD) + (sat_h * RATE_SAT) + (l_h * RATE_PEN) + (s_h * RATE_SUN) + (p_h * RATE_PH)
+    est_net = (total_gross * (1.0 - tax_pct / 100.0)) + LAUNDRY
 
     st.divider()
     m1, m2, m3 = st.columns(3)
     m1.metric("Estimated Net Pay", f"${est_net:.2f}")
-    m2.metric("Total Hours", f"{n_h + l_h + s_h + p_h} hrs")
+    m2.metric("Total Hours", f"{n_h + sat_h + l_h + s_h + p_h} hrs")
 
     goal_delta = est_net - NET_GOAL
     m3.metric("Goal Status", f"${goal_delta:.2f}", delta=f"${goal_delta:.2f} vs $520", delta_color="normal")
